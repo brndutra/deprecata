@@ -1,2556 +1,284 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Deprecata — Turma Regional · Mato Grosso do Sul</title>
-<meta name="description" content="Deprecata — gestor local de cartas, encaminhamentos, contatos e procedimentos da Turma Regional de MS.">
-<meta name="application-name" content="Deprecata">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<style>
-:root{
-  --bordo:#6b1f2a; --bordo-esc:#4a141d; --bordo-clr:#8a3340;
-  --papel:#f6f2eb; --papel-2:#efe9df; --carta:#fffdf9;
-  --tinta:#211c19; --tinta-2:#5b524a; --tinta-3:#8a8076;
-  --linha:#e3dccf; --linha-2:#d6cdbd;
-  --ouro:#a8842c; --ouro-clr:#c9a64a;
-  --verm:#b42318; --verm-bg:#fdecea;
-  --ambar:#b45309; --ambar-bg:#fdf3e3;
-  --verde:#15803d; --verde-bg:#e9f5ec;
-  --azul:#1d4e89; --azul-bg:#e8eef6;
-  --neutro:#6b6258; --neutro-bg:#efeae1;
-  --som:0 1px 2px rgba(33,28,25,.06),0 1px 3px rgba(33,28,25,.05);
-  --som-2:0 4px 14px rgba(33,28,25,.10);
-  --som-3:0 18px 50px rgba(33,28,25,.22);
-  --r:12px; --r-sm:8px; --r-lg:18px;
-  --serif:'Spectral',Georgia,'Times New Roman',serif;
-  --sans:'Inter',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
-  --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+
+
+
+Trecho de código (Deprecata) — inicializa Supabase + upload DOCX + insert em public.carta_anexos
+Cole uma vez no seu script da página (por exemplo no topo do arquivo). Depois cole a chamada no final da sua gerarCertidao(id, qual) conforme indicado.
+
+// 1) Inicialização (escolha A ou B)
+
+const
+ supabase = 
+window
+.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// ou, se precisar global:
+
+ 
+// window.deprecataSupabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// 2) Helpers obrigatórios (qual + object_path)
+
+function
+ 
+padronizaQualDoc
+(
+qualAtual
+) 
+{
+  
+const
+ q = (qualAtual ?? 
+""
+).toString().trim().toLowerCase();
+  
+// qual vindo das ações (decurso/permanencia/reiteracao) -> "certidoes"
+
+  
+if
+ ([
+"decurso"
+, 
+"permanencia"
+, 
+"reiteracao"
+].includes(q)) 
+return
+ 
+"certidoes"
+;
+  
+if
+ ([
+"certidoes"
+, 
+"comunicacoes"
+, 
+"relatorios"
+, 
+"outros"
+].includes(q)) 
+return
+ q;
+  
+return
+ 
+"outros"
+;
 }
-*{box-sizing:border-box;margin:0;padding:0}
-html{-webkit-text-size-adjust:100%}
-body{
-  font-family:var(--sans);color:var(--tinta);background:var(--papel);
-  line-height:1.5;font-size:14.5px;-webkit-font-smoothing:antialiased;
-  background-image:radial-gradient(circle at 1px 1px,rgba(33,28,25,.018) 1px,transparent 0);
-  background-size:22px 22px;
+function
+ 
+montarObjectPathDocx
+(
+carta_id, qual, nome_arquivo_docx
+) 
+{
+  
+const
+ cId = (carta_id ?? 
+""
+).toString().trim();
+  
+const
+ q = (qual ?? 
+"outros"
+).toString().trim().toLowerCase();
+  
+const
+ n = (nome_arquivo_docx ?? 
+""
+).toString().trim().toLowerCase().endsWith(
+".docx"
+)
+    ? (nome_arquivo_docx ?? 
+""
+).toString().trim()
+    : 
+`
+${(nome_arquivo_docx ?? 
+""
+).toString().trim()}
+.docx`
+;
+  
+return
+ 
+`docx/
+${cId}
+/
+${q}
+/
+${n}
+`
+;
 }
-button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
-input,select,textarea{font-family:inherit;font-size:inherit;color:inherit}
-a{color:var(--bordo);text-decoration:none}
-::selection{background:rgba(168,132,44,.25)}
+// 3) Upload + insert (Storage -> public.carta_anexos)
 
-/* ====== LAYOUT ====== */
-.app{display:flex;flex-direction:column;min-height:100vh}
-/* ===== HEADER + NAV ===== */
-.topbar{
-  position:sticky;top:0;z-index:30;
-  background:linear-gradient(100deg,var(--bordo-esc),var(--bordo) 55%,#5c1a25);
-  color:#f4e9da;border-bottom:1px solid rgba(0,0,0,.25);box-shadow:0 1px 10px rgba(33,28,25,.12);
-  display:flex;align-items:center;gap:16px;padding:10px 24px;flex-wrap:nowrap;
-}
-.brand-h{display:flex;align-items:center;gap:11px;flex:none}
-.seal-mark{
-  width:42px;height:42px;border-radius:50%;flex:none;display:grid;place-items:center;
-  background:radial-gradient(circle at 35% 30%,#9a3a47,#5c1a25);
-  border:2px solid var(--ouro-clr);box-shadow:inset 0 0 0 3px rgba(0,0,0,.18),0 2px 6px rgba(0,0,0,.3);
-  font-family:var(--serif);font-weight:700;font-size:12px;letter-spacing:.5px;color:#f4e3c4;line-height:1;text-align:center;
-}
-.brand-txt .eyebrow{font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:#e6c98f;opacity:.92}
-.brand-txt .name{font-family:var(--serif);font-size:20px;font-weight:700;line-height:1;margin-top:2px;letter-spacing:.3px}
-nav.tabs{display:flex;align-items:center;gap:2px;overflow-x:auto;flex-wrap:nowrap;scrollbar-width:none}
-nav.tabs::-webkit-scrollbar{display:none}
-.tab{
-  display:inline-flex;align-items:center;gap:8px;padding:8px 13px;border-radius:var(--r-sm);
-  color:#ecdcc8;font-size:13px;font-weight:500;white-space:nowrap;
-  transition:background .15s,color .15s;position:relative;
-}
-.tab .ic{width:16px;height:16px;flex:none;opacity:.9}
-.tab .badge{background:rgba(0,0,0,.30);color:#ffd9a8;font-size:10.5px;font-weight:700;
-  padding:1px 6px;border-radius:20px;min-width:18px;text-align:center}
-.tab:hover{background:rgba(255,255,255,.09);color:#fff}
-.tab.on{background:rgba(255,255,255,.15);color:#fff;font-weight:600}
-.tab.on::after{content:"";position:absolute;left:13px;right:13px;bottom:-9px;height:3px;border-radius:3px 3px 0 0;background:var(--ouro-clr)}
-.topbar .spacer{flex:1 1 auto}
-.btn.nova{background:#f6e9cf;color:var(--bordo-esc);border-color:var(--ouro-clr);box-shadow:0 1px 4px rgba(0,0,0,.18)}
-.btn.nova:hover{background:#fff4df}
+async
+ 
+function
+ 
+uploadAnexoDocx
+(
+carta_id, qualAtual, blob, nome_arquivo_docx
+) 
+{
+  
+const
+ supa = 
+window
+.deprecataSupabase || supabase;
+  
+if
+ (!supa) 
+throw
+ 
+new
+ 
+Error
+(
+"Supabase client não inicializado."
+);
+  
+const
+ bucket = 
+"deprecata-anexos"
+;
+  
+const
+ qual = padronizaQualDoc(qualAtual);
+  
+const
+ object_path = montarObjectPathDocx(carta_id, qual, nome_arquivo_docx);
+  
+const
+ fileLike =
+    blob 
+instanceof
+ File
+      ? blob
+      : 
+new
+ File([blob], nome_arquivo_docx, {
+          
+type
+: 
+"application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+,
+        });
+  
+// upload em Storage
 
-/* ===== SUBBAR (contexto) ===== */
-.subbar{position:sticky;top:62px;z-index:20;background:rgba(246,242,235,.9);backdrop-filter:blur(8px);
-  border-bottom:1px solid var(--linha);padding:11px 30px;display:flex;align-items:baseline;gap:12px}
-.subbar h1{font-family:var(--serif);font-size:19px;font-weight:600;letter-spacing:.2px}
-.subbar .sub{font-size:12px;color:var(--tinta-2)}
+  
+const
+ { 
+error
+: storageError } = 
+await
+ supa.storage
+    .from(bucket)
+    .upload(object_path, fileLike, { 
+upsert
+: 
+true
+ });
+  
+if
+ (storageError) 
+throw
+ storageError;
+  
+// insert em public.carta_anexos (colunas/nomes exatos)
 
-.content{padding:24px 30px 60px;max-width:1320px;width:100%;margin:0 auto}
-.view{display:none;animation:fade .35s ease}
-.view.on{display:block}
-@keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
-
-/* ====== BOTÕES ====== */
-.btn{display:inline-flex;align-items:center;gap:7px;padding:9px 15px;border-radius:var(--r-sm);
-  font-size:13px;font-weight:600;background:var(--carta);border:1px solid var(--linha-2);box-shadow:var(--som);
-  color:var(--tinta);transition:.15s;white-space:nowrap}
-.btn:hover{border-color:var(--tinta-3);box-shadow:var(--som-2);transform:translateY(-1px)}
-.btn .ic{width:15px;height:15px}
-.btn.primary{background:var(--bordo);color:#fff;border-color:var(--bordo-esc)}
-.btn.primary:hover{background:var(--bordo-clr)}
-.btn.ghost{background:transparent;box-shadow:none;border-color:transparent}
-.btn.ghost:hover{background:var(--papel-2);box-shadow:none}
-.btn.sm{padding:6px 11px;font-size:12px}
-.btn.danger{color:var(--verm);border-color:#f0c9c4}
-.btn.danger:hover{background:var(--verm-bg)}
-.iconbtn{width:32px;height:32px;border-radius:8px;display:grid;place-items:center;color:var(--tinta-2);
-  border:1px solid transparent;transition:.15s}
-.iconbtn:hover{background:var(--papel-2);color:var(--tinta);border-color:var(--linha)}
-.iconbtn.danger:hover{background:var(--verm-bg);color:var(--verm)}
-.iconbtn.ok{color:var(--verde)} .iconbtn.ok:hover{background:var(--verde-bg);color:var(--verde)}
-.iconbtn .ic{width:17px;height:17px}
-
-/* ====== CARTÕES INDICADORES ====== */
-.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:24px}
-.kpi{background:var(--carta);border:1px solid var(--linha);border-radius:var(--r);padding:16px 16px 15px;
-  box-shadow:var(--som);position:relative;overflow:hidden;cursor:pointer;transition:.18s}
-.kpi:hover{box-shadow:var(--som-2);transform:translateY(-2px)}
-.kpi::after{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--linha-2)}
-.kpi.tram::after{background:var(--azul)} .kpi.venc::after{background:var(--verm)}
-.kpi.vir::after{background:var(--ambar)} .kpi.cump::after{background:var(--verde)}
-.kpi.dev::after{background:var(--ouro)}
-.kpi.cob::after{background:var(--bordo)}
-.kpi.cob .num{color:var(--bordo)}
-.kpi .lab{font-size:11.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--tinta-3);display:flex;align-items:center;gap:6px}
-.kpi .num{font-family:var(--serif);font-size:38px;font-weight:600;line-height:1;margin:9px 0 3px}
-.kpi .hint{font-size:11.5px;color:var(--tinta-2)}
-.kpi.venc .num{color:var(--verm)} .kpi.dev .num{color:var(--ouro)}
-
-/* ====== CARDS GERAIS ====== */
-.card{background:var(--carta);border:1px solid var(--linha);border-radius:var(--r);box-shadow:var(--som)}
-.card-h{padding:15px 18px;border-bottom:1px solid var(--linha);display:flex;align-items:center;gap:10px}
-.card-h h2{font-family:var(--serif);font-size:16.5px;font-weight:600}
-.card-h .ic{width:18px;height:18px;color:var(--bordo)}
-.card-h .sub{font-size:12px;color:var(--tinta-2);margin-left:auto}
-.card-b{padding:18px}
-.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
-.grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
-/* faixa compacta de vias de protocolo */
-.via-strip{display:flex;gap:12px;flex-wrap:wrap}
-.via-mini{flex:1 1 0;min-width:200px;display:flex;align-items:center;gap:11px;
-  background:var(--carta);border:1px solid var(--linha);border-radius:var(--r);padding:11px 14px;box-shadow:var(--som)}
-.via-ic{width:34px;height:34px;flex:none;border-radius:9px;background:var(--papel-2);display:grid;place-items:center;color:var(--bordo)}
-.via-ic .ic{width:18px;height:18px}
-.via-txt{min-width:0;flex:1}
-.via-t{font-weight:700;font-size:13.5px;line-height:1.2}
-.via-s{font-size:11px;color:var(--tinta-2);margin-top:1px}
-.via-n{font-family:var(--serif);font-size:24px;font-weight:600;color:var(--bordo);flex:none}
-.section-title{font-family:var(--serif);font-size:15px;font-weight:600;color:var(--tinta);margin:0 0 12px;
-  display:flex;align-items:center;gap:8px}
-.section-title .ic{width:16px;height:16px;color:var(--bordo)}
-
-/* ====== BARRA DE FERRAMENTAS ====== */
-.toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:18px}
-.search{position:relative;flex:1;min-width:220px}
-.search .ic{position:absolute;left:12px;top:50%;transform:translateY(-50%);width:16px;height:16px;color:var(--tinta-3)}
-.search input{width:100%;padding:10px 12px 10px 36px;border:1px solid var(--linha-2);border-radius:var(--r-sm);
-  background:var(--carta);box-shadow:var(--som)}
-.search input:focus{outline:none;border-color:var(--bordo-clr);box-shadow:0 0 0 3px rgba(107,31,42,.10)}
-select.filt,input.filt{padding:9px 12px;border:1px solid var(--linha-2);border-radius:var(--r-sm);
-  background:var(--carta);box-shadow:var(--som);font-size:13px;font-weight:500;color:var(--tinta-2)}
-select.filt:focus,input.filt:focus{outline:none;border-color:var(--bordo-clr)}
-
-/* ====== TABELA ====== */
-.tbl-wrap{background:var(--carta);border:1px solid var(--linha);border-radius:var(--r);box-shadow:var(--som);overflow:hidden}
-table{width:100%;border-collapse:collapse;font-size:13px}
-thead th{text-align:left;padding:11px 14px;font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;
-  color:var(--tinta-3);font-weight:600;background:var(--papel-2);border-bottom:1px solid var(--linha)}
-tbody tr{border-bottom:1px solid var(--linha);transition:background .12s;cursor:pointer}
-tbody tr:last-child{border-bottom:none}
-tbody tr:hover{background:#fbf7f0}
-td{padding:12px 14px;vertical-align:top}
-.cnj{font-family:var(--mono);font-size:12px;font-weight:500;color:var(--tinta)}
-.sub-cell{font-size:11.5px;color:var(--tinta-2);margin-top:3px}
-.act-cell{display:flex;gap:4px;justify-content:flex-end;align-items:center}
-.combtn{display:inline-flex;align-items:center;gap:6px;font-family:inherit;font-size:11.5px;font-weight:600;cursor:pointer;
-  padding:6px 11px;border-radius:8px;color:var(--bordo);background:#f6e7e6;border:1px solid #ecccc9;white-space:nowrap;transition:.15s}
-.combtn:hover{background:var(--bordo);color:#fff;border-color:var(--bordo-esc)}
-.combtn .ic{width:15px;height:15px}
-
-/* ---- Via pill (1ª coluna) ---- */
-.viapill{display:inline-flex;align-items:stretch;margin-top:7px;border-radius:7px;overflow:hidden;cursor:pointer;
-  border:1px solid var(--linha);font-size:10px;font-weight:700;letter-spacing:.02em;line-height:1;user-select:none;transition:.15s}
-.viapill:hover{border-color:var(--tinta-3);box-shadow:0 1px 3px rgba(0,0,0,.08)}
-.viapill .vp-k{display:flex;align-items:center;padding:4px 7px;color:var(--tinta-2);background:var(--papel-2);white-space:nowrap}
-.viapill .vp-s{display:flex;align-items:center;padding:4px 7px;white-space:nowrap}
-.vp-s.amb{color:var(--ambar);background:var(--ambar-bg)}
-.vp-s.ok{color:var(--verde);background:var(--verde-bg)}
-.vp-s.azul{color:var(--azul);background:var(--azul-bg)}
-.vp-s.neu{color:var(--neutro);background:var(--neutro-bg)}
-
-/* ====== PILLS / SELOS ====== */
-.pill{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:20px;font-size:11px;
-  font-weight:600;white-space:nowrap;border:1px solid transparent}
-.pill .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
-.pill.st-aguardando{color:#6b5e2a;background:#f6f0d8;border-color:#e8dcab}
-.pill.st-cumprimento{color:var(--azul);background:var(--azul-bg);border-color:#cad9ee}
-.pill.st-cumprida{color:var(--verde);background:var(--verde-bg);border-color:#c6e3cd}
-.pill.st-devolvida{color:#3f5a8f;background:#eaeef7;border-color:#cdd7ec}
-.pill.st-suspensa{color:var(--neutro);background:var(--neutro-bg);border-color:#ddd4c6}
-.pill.st-arquivada{color:#6b6258;background:#eceae4;border-color:#dcd6c9}
-.selo{display:inline-flex;align-items:center;gap:5px;padding:3px 8px;border-radius:7px;font-size:11px;font-weight:600;border:1px solid transparent}
-.selo.venc{color:var(--verm);background:var(--verm-bg);border-color:#f3cfca}
-.selo.hoje{color:#fff;background:var(--verm);border-color:var(--verm)}
-.selo.amb{color:var(--ambar);background:var(--ambar-bg);border-color:#f1d9b3}
-.selo.ok{color:var(--verde);background:var(--verde-bg);border-color:#cbe7d2}
-.selo.neu{color:var(--neutro);background:var(--neutro-bg);border-color:#ded5c7}
-.natureza{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:2px 7px;border-radius:6px}
-.natureza.publica{color:#7a4a12;background:#fbeed7;border:1px solid #efd9ac}
-.natureza.mp{color:#5a2e7a;background:#f1e6f7;border:1px solid #ddc6ec}
-.natureza.privada{color:var(--tinta-3);background:transparent}
-.tag-div{font-size:10.5px;font-weight:700;letter-spacing:.04em;padding:2px 6px;border-radius:5px}
-.tag-div.DKMS{color:var(--bordo);background:#f6e7e6;border:1px solid #ecccc9}
-.tag-div.DJMS{color:var(--azul);background:var(--azul-bg);border:1px solid #cdd9ee}
-.obst-flag{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:600;color:#8a4b00;
-  background:#fbe8d4;border:1px solid #f0d4a8;padding:1px 6px;border-radius:5px;margin-top:4px}
-
-/* ====== ESTADO VAZIO ====== */
-.empty{text-align:center;padding:54px 24px;color:var(--tinta-2)}
-.empty .em-mark{width:58px;height:58px;border-radius:50%;margin:0 auto 16px;display:grid;place-items:center;
-  background:var(--papel-2);color:var(--bordo)}
-.empty h3{font-family:var(--serif);font-size:19px;color:var(--tinta);margin-bottom:6px}
-.empty p{font-size:13px;max-width:380px;margin:0 auto 18px}
-.empty .actions{display:flex;gap:10px;justify-content:center;flex-wrap:wrap}
-
-/* ====== MODAL ====== */
-.scrim{position:fixed;inset:0;background:rgba(33,28,25,.42);backdrop-filter:blur(2px);z-index:60;
-  display:none;align-items:flex-start;justify-content:center;padding:40px 18px;overflow:auto}
-.scrim.on{display:flex}
-.modal{background:var(--papel);border-radius:var(--r-lg);box-shadow:var(--som-3);width:100%;max-width:760px;
-  border:1px solid var(--linha);animation:pop .22s ease}
-.modal.wide{max-width:920px}
-@keyframes pop{from{opacity:0;transform:scale(.97) translateY(8px)}to{opacity:1;transform:none}}
-.modal-h{padding:18px 22px;border-bottom:1px solid var(--linha);display:flex;align-items:center;gap:12px;
-  position:sticky;top:0;background:var(--papel);border-radius:var(--r-lg) var(--r-lg) 0 0;z-index:2}
-.modal-h h2{font-family:var(--serif);font-size:19px;font-weight:600;flex:1}
-.modal-h .ic{width:20px;height:20px;color:var(--bordo)}
-.modal-b{padding:22px}
-.modal-f{padding:16px 22px;border-top:1px solid var(--linha);display:flex;gap:10px;align-items:center;
-  position:sticky;bottom:0;background:var(--papel);border-radius:0 0 var(--r-lg) var(--r-lg)}
-.modal-f .spacer{flex:1}
-
-/* ====== FORM ====== */
-.field{margin-bottom:14px}
-.field label{display:block;font-size:12px;font-weight:600;color:var(--tinta-2);margin-bottom:5px}
-.field label .req{color:var(--verm)}
-.field label .hint-inline{font-weight:400;color:var(--tinta-3);font-size:11px;text-transform:none;letter-spacing:0}
-.field input,.field select,.field textarea{width:100%;padding:9px 11px;border:1px solid var(--linha-2);
-  border-radius:var(--r-sm);background:var(--carta);transition:.15s}
-.field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--bordo-clr);box-shadow:0 0 0 3px rgba(107,31,42,.09)}
-.field textarea{resize:vertical;min-height:64px}
-.field input.mono{font-family:var(--mono);letter-spacing:.3px}
-.field.err input,.field.err select{border-color:var(--verm);background:var(--verm-bg)}
-.field .help{font-size:11px;color:var(--tinta-3);margin-top:4px}
-.field .help.calc{color:var(--verde);font-weight:600}
-.row{display:grid;gap:14px}
-.row.c2{grid-template-columns:1fr 1fr}
-.row.c3{grid-template-columns:1fr 1fr 1fr}
-.fieldset{border:1px solid var(--linha);border-radius:var(--r);padding:15px;margin-bottom:16px;background:#fffefb}
-.fieldset legend{font-family:var(--serif);font-size:13.5px;font-weight:600;padding:0 8px;color:var(--bordo)}
-.seg{display:inline-flex;background:var(--papel-2);border-radius:8px;padding:3px;gap:3px;border:1px solid var(--linha)}
-.seg button{padding:6px 12px;border-radius:6px;font-size:12.5px;font-weight:600;color:var(--tinta-2)}
-.seg button.on{background:var(--carta);color:var(--bordo);box-shadow:var(--som)}
-.switch{display:inline-flex;align-items:center;gap:9px;cursor:pointer;font-size:13px;font-weight:500}
-.switch input{display:none}
-.switch .track{width:38px;height:22px;border-radius:20px;background:var(--linha-2);position:relative;transition:.2s;flex:none}
-.switch .track::after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:var(--som);transition:.2s}
-.switch input:checked+.track{background:var(--bordo)}
-.switch input:checked+.track::after{transform:translateX(16px)}
-.chk{display:flex;align-items:center;gap:9px;padding:9px 11px;border:1px solid var(--linha);border-radius:var(--r-sm);
-  background:var(--carta);font-size:13px;cursor:pointer;transition:.15s;margin-bottom:7px}
-.chk:hover{border-color:var(--tinta-3)}
-.chk input{width:17px;height:17px;accent-color:var(--bordo);flex:none}
-.chk.done{background:var(--verde-bg);border-color:#cbe7d2}
-
-/* ====== DROPZONE ====== */
-.dropz{border:2px dashed var(--linha-2);border-radius:var(--r);padding:18px;text-align:center;
-  background:var(--papel-2);transition:.18s;margin-bottom:16px;cursor:pointer}
-.dropz.drag{border-color:var(--bordo);background:#f6ece9}
-.dropz .ic{width:26px;height:26px;color:var(--bordo);margin-bottom:6px}
-.dropz .t{font-size:13px;font-weight:600}
-.dropz .s{font-size:11.5px;color:var(--tinta-2);margin-top:2px}
-.dropz .status{margin-top:9px;font-size:12px;font-weight:600;display:none}
-.dropz .status.show{display:block}
-.dropz .status.ok{color:var(--verde)} .dropz .status.err{color:var(--verm)} .dropz .status.busy{color:var(--azul)}
-
-/* ====== BANNERS / AVISOS ====== */
-.banner{display:flex;gap:11px;align-items:flex-start;padding:12px 14px;border-radius:var(--r-sm);
-  font-size:12.5px;margin-bottom:14px;border:1px solid transparent;line-height:1.45}
-.banner .ic{width:18px;height:18px;flex:none;margin-top:1px}
-.banner.info{background:var(--azul-bg);border-color:#cdd9ee;color:#274d7a}
-.banner.warn{background:var(--ambar-bg);border-color:#f0d8b0;color:#8a4b00}
-.banner.gold{background:#faf3e0;border-color:#ecd9a6;color:#7a5e16}
-.banner.bordo{background:#f7eae9;border-color:#eccfcc;color:var(--bordo-esc)}
-.banner b{font-weight:700}
-/* ---- Cobrança ---- */
-.cob-head{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;flex-wrap:wrap;
-  padding:14px 16px;background:var(--papel-2);border:1px solid var(--linha);border-radius:var(--r-sm);margin-bottom:14px}
-.cob-metrics{display:flex;gap:18px}
-.cob-metric{text-align:center;min-width:62px}
-.cob-metric .cm-v{font-family:var(--serif);font-size:22px;font-weight:600;color:var(--bordo);line-height:1}
-.cob-metric .cm-l{font-size:10.5px;letter-spacing:.04em;text-transform:uppercase;color:var(--tinta-3);margin-top:4px}
-.cert-row{display:flex;gap:8px;flex-wrap:wrap}
-.cob-hist{border-top:1px solid var(--linha);max-height:160px;overflow:auto}
-
-/* ====== CALENDÁRIO FEDERAL ====== */
-.cal-list{display:flex;flex-direction:column}
-.cal-row{display:flex;align-items:center;gap:13px;padding:10px 2px;border-bottom:1px dashed var(--linha)}
-.cal-row:last-child{border-bottom:none}
-.cal-date{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--bordo);background:#f6e7e6;
-  padding:5px 9px;border-radius:7px;min-width:78px;text-align:center;flex:none}
-.cal-name{font-size:13px;font-weight:500}
-.cal-tag{font-size:10.5px;color:var(--tinta-3);margin-top:1px}
-.cal-when{margin-left:auto;font-size:11.5px;font-weight:600;color:var(--tinta-2);white-space:nowrap}
-.cal-when.soon{color:var(--ambar)}
-
-/* ====== GRÁFICOS ====== */
-.donut-wrap{display:flex;align-items:center;gap:24px;flex-wrap:wrap}
-.legend{display:flex;flex-direction:column;gap:9px;font-size:12.5px}
-.legend .li{display:flex;align-items:center;gap:9px}
-.legend .sw{width:12px;height:12px;border-radius:3px;flex:none}
-.legend .li b{font-family:var(--serif);font-size:15px;margin-left:auto;padding-left:18px}
-.bar-track{height:9px;border-radius:6px;background:var(--papel-2);overflow:hidden;margin-top:6px}
-.bar-fill{height:100%;border-radius:6px}
-.stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px}
-.stat{background:var(--papel-2);border-radius:var(--r-sm);padding:13px 15px}
-.stat .v{font-family:var(--serif);font-size:26px;font-weight:600;line-height:1}
-.stat .l{font-size:11.5px;color:var(--tinta-2);margin-top:4px}
-
-/* ====== TOAST ====== */
-.toast-wrap{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);z-index:90;display:flex;flex-direction:column;gap:8px}
-.toast{background:var(--tinta);color:#f6f2eb;padding:11px 17px;border-radius:10px;box-shadow:var(--som-3);
-  font-size:13px;font-weight:500;display:flex;align-items:center;gap:9px;animation:slideup .3s ease}
-.toast.ok{background:#1c5234} .toast.err{background:#7a1f17}
-.toast .ic{width:16px;height:16px}
-@keyframes slideup{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
-
-/* ====== UTIL ====== */
-.muted{color:var(--tinta-2)} .small{font-size:12px}
-.foot{display:flex;align-items:center;gap:16px;margin-top:20px;padding-top:16px;border-top:1px solid var(--linha);
-  font-size:12px;color:var(--tinta-2);flex-wrap:wrap}
-.foot .spacer{flex:1}
-.link-btn{color:var(--bordo);font-weight:600;font-size:12px}
-.link-btn:hover{text-decoration:underline}
-.hidden{display:none!important}
-
-/* ====== INTIMAÇÕES PJe ====== */
-.intim-q{margin-bottom:16px}
-.intim-q>label{display:block;font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--tinta-3);font-weight:700;margin-bottom:8px}
-.intim-opts{display:flex;flex-wrap:wrap;gap:8px}
-.intim-opt{font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;padding:9px 15px;border-radius:9px;
-  background:var(--papel-2);color:var(--tinta-2);border:1px solid var(--linha);transition:.15s}
-.intim-opt:hover{border-color:var(--tinta-3);color:var(--tinta)}
-.intim-opt.on{background:var(--bordo);color:#fff;border-color:var(--bordo-esc)}
-.intim-res{margin-top:18px;padding:18px 16px;border-radius:var(--r);background:var(--papel-2);border:1px solid var(--linha);text-align:center}
-.intim-res.empty{background:transparent;border-style:dashed}
-.intim-res-lab{font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;color:var(--tinta-3);font-weight:700;margin-bottom:11px}
-.intim-why{font-size:13px;color:var(--tinta-2);margin:12px auto 0;max-width:560px;line-height:1.55}
-.dst{display:inline-flex;align-items:center;font-family:var(--serif);font-size:18px;font-weight:600;padding:7px 16px;border-radius:10px;line-height:1.2}
-.dst.sm{font-family:inherit;font-size:12px;font-weight:700;padding:4px 10px;border-radius:7px}
-.dst.djen{color:var(--azul);background:var(--azul-bg)}
-.dst.dom{color:var(--verde);background:var(--verde-bg)}
-.dst.sis{color:var(--ambar);background:var(--ambar-bg)}
-.dst.man{color:var(--bordo);background:#f7eae9}
-.dst.neu{color:var(--neutro);background:var(--neutro-bg);font-size:14px;font-weight:500;font-family:inherit}
-.princ{display:flex;flex-direction:column;gap:13px}
-.princ-row{display:flex;gap:12px;align-items:flex-start}
-.princ-n{flex:none;width:24px;height:24px;border-radius:50%;background:var(--bordo);color:#fff;display:grid;place-items:center;font-size:12px;font-weight:700;font-family:var(--serif)}
-.princ-t{font-weight:700;font-size:13.5px}
-.princ-d{font-size:12.5px;color:var(--tinta-2);margin-top:2px;line-height:1.5}
-.peg{margin-bottom:12px;padding:12px 14px;border-radius:10px;border:1px solid var(--linha);background:var(--carta)}
-.peg-h{font-weight:700;font-size:13px;margin-bottom:5px}
-.peg-h.pub{color:var(--verde)} .peg-h.priv{color:var(--azul)}
-.peg p{font-size:12px;color:var(--tinta-2);line-height:1.55;margin:0}
-.intim-note{display:flex;gap:9px;align-items:flex-start;margin-top:6px;padding:10px 12px;border-radius:9px;background:var(--azul-bg);border:1px solid #cdd9ee;font-size:12px;color:#274d7a}
-.intim-note .ic{width:16px;height:16px;flex:none;margin-top:1px}
-
-/* ---- Flip card (lógica × pegadinha) ---- */
-.flip-card{perspective:1400px}
-.flip-inner{position:relative;min-height:478px;transition:transform .55s cubic-bezier(.4,.1,.2,1);transform-style:preserve-3d}
-.flip-inner.flipped{transform:rotateY(180deg)}
-.flip-face{position:absolute;inset:0;display:flex;flex-direction:column;background:var(--carta);
-  border:1px solid var(--linha);border-radius:var(--r);box-shadow:var(--som);overflow:hidden;
-  backface-visibility:hidden;-webkit-backface-visibility:hidden}
-.flip-face .card-b{overflow:auto}
-.flip-back{transform:rotateY(180deg)}
-.flip-btn{margin-left:auto}
-.flip-card .card-h{flex:none}
-
-/* ---- Dúvidas ---- */
-.duv-list{display:flex;flex-direction:column;gap:8px}
-.duv-row{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;border:1px solid var(--linha);border-radius:10px;background:var(--papel-2)}
-.duv-row.done{opacity:.6}
-.duv-row.done .duv-txt{text-decoration:line-through}
-.duv-txt{flex:1;font-size:13.5px;line-height:1.45}
-.duv-meta{font-size:11px;color:var(--tinta-3);margin-top:3px;text-decoration:none;display:block}
-
-/* ---- Agenda de contatos ---- */
-.cont-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
-.cont-card{background:var(--carta);border:1px solid var(--linha);border-radius:var(--r);padding:15px 16px;box-shadow:var(--som);position:relative;display:flex;flex-direction:column;gap:7px}
-.cont-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
-.cont-nome{font-weight:700;font-size:14px;line-height:1.25}
-.cont-org{font-size:11.5px;color:var(--tinta-2);margin-top:2px}
-.tag-cat{flex:none;font-size:10px;font-weight:700;letter-spacing:.03em;padding:3px 8px;border-radius:6px;white-space:nowrap;
-  color:var(--neutro);background:var(--neutro-bg);border:1px solid #ded5c7}
-.tag-cat.trf3{color:var(--azul);background:var(--azul-bg);border-color:#cdd9ee}
-.tag-cat.jfms{color:var(--verde);background:var(--verde-bg);border-color:#bfe0c8}
-.tag-cat.tjms{color:var(--bordo);background:#f6e7e6;border-color:#ecccc9}
-.tag-cat.comarca{color:var(--ambar);background:var(--ambar-bg);border-color:#f0d8b0}
-.tag-cat.outro{color:var(--neutro);background:var(--neutro-bg);border-color:#ded5c7}
-.cont-line{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--tinta);font-family:var(--mono)}
-.cont-line .ic{width:15px;height:15px;color:var(--bordo);flex:none}
-.cont-line:hover{color:var(--bordo)}
-.cont-obs{font-size:12px;color:var(--tinta-2);line-height:1.5;border-top:1px dashed var(--linha);padding-top:8px;margin-top:2px}
-.cont-acts{display:flex;gap:4px;justify-content:flex-end;margin-top:2px}
-
-/* ---- Dúvidas (rodapé minimizável) ---- */
-.duv-foot{border-top:1px solid var(--linha)}
-.duv-toggle{width:100%;display:flex;align-items:center;gap:9px;padding:12px 18px;background:none;border:0;cursor:pointer;
-  font-family:inherit;font-size:13px;font-weight:600;color:var(--tinta-2);text-align:left}
-.duv-toggle:hover{color:var(--bordo)}
-.duv-toggle .ic{width:16px;height:16px;flex:none}
-.duv-count{margin-left:2px;font-size:11px;font-weight:700;color:var(--bordo);background:#f6e7e6;border:1px solid #ecccc9;border-radius:20px;padding:1px 8px}
-.duv-chev{margin-left:auto;display:flex;transition:transform .25s}
-.duv-chev .ic{width:18px;height:18px}
-.duv-toggle.open .duv-chev{transform:rotate(180deg)}
-.duv-body{max-height:0;overflow:hidden;transition:max-height .3s ease;padding:0 18px}
-.duv-body.open{max-height:1200px;padding:0 18px 18px}
-
-/* ---- Filtro por órgão ---- */
-.orgfilter{display:flex;flex-wrap:wrap;gap:8px;margin:2px 0 16px}
-.orgchip{display:inline-flex;align-items:center;gap:7px;font-family:inherit;font-size:12.5px;font-weight:600;cursor:pointer;
-  padding:6px 13px;border-radius:20px;background:var(--papel-2);color:var(--tinta-2);border:1px solid var(--linha);transition:.15s}
-.orgchip:hover{border-color:var(--tinta-3);color:var(--tinta)}
-.orgchip.on{background:var(--bordo);color:#fff;border-color:var(--bordo-esc)}
-.orgchip-n{font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:20px;background:rgba(0,0,0,.07)}
-.orgchip.on .orgchip-n{background:rgba(255,255,255,.22)}
-
-/* ====== PRINT (peça art. 260) ====== */
-@media print{
-  body *{visibility:hidden}
-  #printArea,#printArea *{visibility:visible}
-  #printArea{position:absolute;inset:0;padding:42px 54px;background:#fff;color:#111}
-}
-#printArea{display:none}
-
-/* ====== RESPONSIVO ====== */
-@media(max-width:1100px){.kpis{grid-template-columns:repeat(3,1fr)}.grid-2{grid-template-columns:1fr}}
-@media(max-width:860px){
-  .topbar{padding:9px 14px;gap:10px}
-  .subbar{top:60px;padding:9px 16px}
-  .brand-txt{display:none}
-  .btn.nova{padding:7px 11px;font-size:12px}
-  .content{padding:18px 16px 50px}
-  .kpis{grid-template-columns:1fr 1fr}
-  .via-strip{gap:10px}.via-mini{min-width:150px}
-  .row.c2,.row.c3{grid-template-columns:1fr}
-  table{font-size:12px}td,thead th{padding:9px 9px}
-}
-@media(max-width:560px){.kpis{grid-template-columns:1fr 1fr}.via-mini{min-width:100%}}
-
-/* ====== DEPLOY/GITHUB + STORAGE + OPERACIONAL ====== */
-.op-tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
-.op-tab{padding:7px 12px;border-radius:20px;border:1px solid var(--linha);background:var(--papel-2);font-size:12px;font-weight:700;color:var(--tinta-2);cursor:pointer}
-.op-tab.on{background:var(--bordo);border-color:var(--bordo-esc);color:#fff}
-.op-flow{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin:12px 0}
-.op-step{background:var(--papel-2);border:1px solid var(--linha);border-radius:10px;padding:10px;font-size:12px}
-.op-step b{display:block;color:var(--bordo);font-size:12.5px;margin-bottom:3px}
-.op-docs{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;margin-top:12px}
-.op-doc{background:#fffefb;border:1px solid var(--linha);border-radius:10px;padding:11px;font-size:12px}
-.op-doc b{display:block;color:var(--tinta);margin-bottom:4px}
-.storage-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}
-.storage-tile{border:1px solid var(--linha);background:var(--papel-2);border-radius:10px;padding:12px}
-.storage-tile .v{font-family:var(--serif);font-size:24px;color:var(--bordo);font-weight:700;line-height:1}
-.storage-tile .l{font-size:11.5px;color:var(--tinta-2);margin-top:4px}
-.cont-card.fav{border-color:var(--ouro-clr);box-shadow:0 0 0 1px rgba(168,132,44,.18),var(--som-2)}
-.favbtn{color:var(--tinta-3)}
-.favbtn.on{color:var(--ouro);background:#fbf1d3;border-color:#ead8a1}
-.meios-table{width:100%;border-collapse:collapse;margin-top:8px;background:var(--carta);border:1px solid var(--linha);border-radius:10px;overflow:hidden}
-.meios-table th,.meios-table td{padding:7px;border-bottom:1px solid var(--linha);font-size:12px;vertical-align:middle}
-.meios-table th{background:var(--papel-2);font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--tinta-3)}
-.meios-table input,.meios-table select{width:100%;padding:6px 7px;border:1px solid var(--linha-2);border-radius:7px;background:#fff}
-.proc-protocolado{display:block;margin-top:4px;font-family:var(--mono);font-size:11px;color:var(--azul);background:var(--azul-bg);border:1px solid #cdd9ee;border-radius:7px;padding:3px 6px;width:fit-content}
-
-</style>
-</head>
-<body>
-<div class="app">
-  <!-- ============ HEADER + NAV ============ -->
-  <header class="topbar">
-    <div class="brand-h">
-      <div class="seal-mark">TR<br>MS</div>
-      <div class="brand-txt">
-        <div class="eyebrow">Turma Regional · MS</div>
-        <div class="name">Deprecata</div>
-      </div>
-    </div>
-    <nav class="tabs" id="tabs"></nav>
-    <div class="spacer"></div>
-    <button class="btn primary nova" onclick="App.openForm()">
-      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
-      Nova carta
-    </button>
-  </header>
-
-  <!-- ============ CONTEXTO ============ -->
-  <div class="subbar">
-    <h1 id="viewTitle">Painel de Controle</h1>
-    <div class="sub" id="viewSub">Visibilidade imediata do que está em jogo.</div>
-  </div>
-
-  <!-- ============ MAIN ============ -->
-  <main class="content" id="content"></main>
-</div>
-
-<div class="scrim" id="scrim"></div>
-<div class="toast-wrap" id="toasts"></div>
-<div id="printArea"></div>
-
-<!-- GitHub Pages: arquivo estático. Todos os registros são persistidos em localStorage; use Backup JSON para migrar dados entre navegadores. -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script>
-/* ===================================================================
-   DEPRECATA · Turma Regional de Mato Grosso do Sul
-   Aplicação de página única — lógica completa
-   =================================================================== */
-(function(){
-"use strict";
-
-/* ---------- ÍCONES (SVG inline) ---------- */
-const P = (d,extra="")=>`<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ${extra}>${d}</svg>`;
-const IC = {
-  painel:P('<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>'),
-  cartas:P('<path d="M4 4h16v16H4z"/><path d="M4 9h16M9 4v16"/>'),
-  comm:P('<path d="M4 4h16v12H7l-3 3z"/>'),
-  dkms:P('<path d="M9 11l3 3 8-8"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>'),
-  rel:P('<path d="M3 3v18h18"/><path d="M7 14l3-4 3 3 5-6"/>'),
-  search:P('<circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/>'),
-  mail:P('<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>'),
-  trash:P('<path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/>'),
-  plus:P('<path d="M12 5v14M5 12h14"/>'),
-  calendar:P('<rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/>'),
-  clock:P('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'),
-  alert:P('<path d="M12 9v4M12 17h.01"/><path d="M10.3 3.6 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.6a2 2 0 0 0-3.4 0z"/>'),
-  info:P('<circle cx="12" cy="12" r="9"/><path d="M12 16v-5M12 8h.01"/>'),
-  file:P('<path d="M14 3v5h5"/><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>'),
-  upload:P('<path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>'),
-  download:P('<path d="M12 4v12M7 11l5 5 5-5"/><path d="M4 21h16"/>'),
-  copy:P('<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/>'),
-  send:P('<path d="m22 2-7 20-4-9-9-4z"/><path d="M22 2 11 13"/>'),
-  scale:P('<path d="M12 3v18M5 7l-3 6h6zM19 7l-3 6h6z"/><path d="M5 7h14M8 21h8"/>'),
-  shield:P('<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/>'),
-  phone:P('<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L19 13l2 5v3a1 1 0 0 1-1 1A16 16 0 0 1 4 5a1 1 0 0 1 1-1z"/>'),
-  check:P('<path d="M5 12l5 5L20 7"/>'),
-  pause:P('<path d="M9 4v16M15 4v16"/>'),
-  edit:P('<path d="M12 20h9"/><path d="M16.5 3.5a2 2 0 0 1 3 3L7 19l-4 1 1-4z"/>'),
-  route:P('<circle cx="6" cy="19" r="2"/><circle cx="18" cy="5" r="2"/><path d="M8 19h6a4 4 0 0 0 0-8H10a4 4 0 0 1 0-8h6"/>'),
-  x:P('<path d="M18 6 6 18M6 6l12 12"/>'),
-  bell:P('<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>'),
-  stamp:P('<path d="M5 21h14"/><path d="M9 11V6a3 3 0 0 1 6 0v5"/><path d="M7 11h10v3a3 3 0 0 1-3 3h-4a3 3 0 0 1-3-3z"/>'),
-  compass:P('<circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2.2 4.8-4.8 2.2 2.2-4.8z"/>'),
-  contacts:P('<path d="M4 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4z"/><path d="M4 8H2M4 12H2M4 16H2"/><circle cx="11" cy="11" r="2.2"/><path d="M8 16.5a3 3 0 0 1 6 0"/>'),
-  flip:P('<path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/>'),
-  user:P('<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>'),
-  chevron:P('<path d="m6 9 6 6 6-6"/>'),
-  building:P('<rect x="5" y="3" width="14" height="18" rx="1"/><path d="M9 7h2M13 7h2M9 11h2M13 11h2M9 15h2M13 15h2"/>'),
-};
-
-/* ---------- DICIONÁRIOS ---------- */
-const TIPOS = {precatoria:"Carta Precatória", ordem:"Carta de Ordem", rogatoria:"Carta Rogatória"};
-const STATUS = {
-  aguardando:"A expedir", cumprimento:"Expedida · aguardando cumprimento", cumprida:"Cumprida e devolvida",
-  devolvida:"Baixada ao gabinete", suspensa:"Suspensa", arquivada:"Arquivada"
-};
-const CONCLUIDO = ["cumprida","devolvida","arquivada"];
-const NATUREZA = {privada:"Particular", publica:"Fazenda Pública", mp:"Ministério Público"};
-const DIVISAO = {DKMS:"DKMS — Triagem e Cumprimento", DJMS:"DJMS — Coordenação e Julgamento"};
-const VIA = {
-  pje:"PJe direto (unidade da 3ª Região)",
-  malote:"Malote Digital",
-  email:"E-mail",
-  autoridade:"Autoridade / órgão externo",
-  central:"Via Autoridade Central (rogatória internacional)"
-};
-const ENC_STATUS = {
-  pje:["a_protocolar_pje","protocolado","confirmacao_recebimento_protocolo","decisao_incidente"],
-  malote:["a_remeter_malote","enviado","aguardando_aviso_recebimento","recebido","aviso_juntado"],
-  email:["a_remeter_email","enviado","aguardando_aviso_recebimento","recebido","aviso_juntado"],
-  autoridade:["a_encaminhar","encaminhado","aguardando_aviso_recebimento","recebido","aviso_juntado"],
-  central:["a_encaminhar","encaminhado","aguardando_aviso_recebimento","recebido","aviso_juntado"]
-};
-const ENC_LABEL = {
-  a_protocolar_pje:"a protocolar no PJe", protocolado:"protocolado", confirmacao_recebimento_protocolo:"confirmação de recebimento", decisao_incidente:"decisão no incidente",
-  a_remeter_email:"a remeter via e-mail", a_remeter_malote:"a remeter via malote", enviado:"enviado",
-  aguardando_aviso_recebimento:"ag. aviso de recebimento", recebido:"recebido", aviso_juntado:"aviso juntado",
-  a_encaminhar:"a encaminhar", encaminhado:"encaminhado"
-};
-const RELATORES = [
-  "Des. Fed. Relator 1","Des. Fed. Relator 2","Des. Fed. Relator 3",
-  "Juiz Federal Convocado","Presidente do Tribunal"
-];
-
-/* ---------- MOTOR DE DATAS E FERIADOS FORENSES ---------- */
-const DOW=86400000;
-function ymd(d){return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");}
-function parseD(s){if(!s)return null;const [y,m,d]=s.split("-").map(Number);return new Date(y,m-1,d);}
-function today(){const t=new Date();return new Date(t.getFullYear(),t.getMonth(),t.getDate());}
-function fmtBR(s){const d=parseD(s);if(!d)return"—";return d.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit",year:"numeric"});}
-function fmtExt(d){return d.toLocaleDateString("pt-BR",{weekday:"long",day:"2-digit",month:"long",year:"numeric"});}
-function diasEntre(a,b){return Math.round((parseD(b)-parseD(a))/DOW);}
-
-// Páscoa (Meeus/Jones/Butcher) -> base p/ feriados móveis
-function pascoa(y){const a=y%19,b=Math.floor(y/100),c=y%100,d=Math.floor(b/4),e=b%4,f=Math.floor((b+8)/25),
-  g=Math.floor((b-f+1)/3),h=(19*a+b-d-g+15)%30,i=Math.floor(c/4),k=c%4,l=(32+2*e+2*i-h-k)%7,
-  m=Math.floor((a+11*h+22*l)/451),mes=Math.floor((h+l-7*m+114)/31),dia=((h+l-7*m+114)%31)+1;
-  return new Date(y,mes-1,dia);}
-function addDias(d,n){return new Date(d.getTime()+n*DOW);}
-
-// Feriados nacionais + forenses federais (TRF3 / JF) para um ano
-function feriados(y){
-  const f={};
-  const set=(d,nome,tag)=>{f[ymd(d)]={nome,tag};};
-  const pas=pascoa(y);
-  set(new Date(y,0,1),"Confraternização Universal","nacional");
-  set(addDias(pas,-48),"Carnaval (segunda)","forense");
-  set(addDias(pas,-47),"Carnaval (terça)","nacional");
-  set(addDias(pas,-46),"Quarta-feira de Cinzas (até 14h)","forense");
-  set(addDias(pas,-2),"Sexta-feira Santa","nacional");
-  set(new Date(y,3,21),"Tiradentes","nacional");
-  set(new Date(y,4,1),"Dia do Trabalho","nacional");
-  set(addDias(pas,60),"Corpus Christi","forense");
-  set(new Date(y,7,11),"Dia do Advogado / Criação dos Cursos Jurídicos","forense");
-  set(new Date(y,8,7),"Independência","nacional");
-  set(new Date(y,9,12),"Nossa Senhora Aparecida","nacional");
-  set(new Date(y,9,28),"Dia do Servidor Público","forense");
-  set(new Date(y,10,1),"Feriado regimental (1º/11)","forense");
-  set(new Date(y,10,2),"Finados","nacional");
-  set(new Date(y,10,15),"Proclamação da República","nacional");
-  set(new Date(y,10,20),"Consciência Negra","nacional");
-  set(new Date(y,11,8),"Dia da Justiça / Imaculada Conceição","forense");
-  set(new Date(y,11,25),"Natal","nacional");
-  // Recesso forense 20/12 a 06/01
-  for(let dd=20;dd<=31;dd++) set(new Date(y,11,dd),"Recesso forense","recesso");
-  for(let dd=1;dd<=6;dd++) set(new Date(y,0,dd),"Recesso forense","recesso");
-  return f;
-}
-const _cacheFer={};
-function ferDoAno(y){return _cacheFer[y]||(_cacheFer[y]=feriados(y));}
-function ehFeriado(d){const m=ferDoAno(d.getFullYear());return m[ymd(d)];}
-function ehUtil(d){const w=d.getDay();return w!==0&&w!==6&&!ehFeriado(d);}
-
-// soma N dias úteis (pula fins de semana E feriados forenses)
-function addDiasUteis(start,n){let d=new Date(start),c=0;while(c<n){d=addDias(d,1);if(ehUtil(d))c++;}return d;}
-function addDiasCorridos(start,n){return addDias(new Date(start),n);}
-// dias úteis restantes entre hoje e uma data (p/ suspensão art. 221)
-function uteisAteData(de,ate){let d=new Date(de),c=0;const alvo=ymd(ate);
-  if(ymd(d)>=alvo)return 0;
-  while(ymd(d)<alvo){d=addDias(d,1);if(ehUtil(d))c++;}return c;}
-
-/* ---------- CÁLCULO DE PRAZO (regras de negócio) ---------- */
-// natureza pública/MP => prazo em dobro (modo "em dias")
-function dobra(nat){return nat==="publica"||nat==="mp";}
-function calcPrazo(c){
-  if(c.prazoModo!=="dias")return c.prazo||null;
-  const base=parseD(c.recebimento)||today();
-  let n=Number(c.prazoDias)||0;
-  if(dobra(c.naturezaParte)) n=n*2;          // REGRA 2: prazo em dobro
-  const fim = c.prazoDiasTipo==="uteis" ? addDiasUteis(base,n) : addDiasCorridos(base,n);
-  return ymd(fim);
-}
-
-/* ---------- ARMAZENAMENTO ---------- */
-const STATE_KEYS=["deprecata:cartas","deprecata:config","deprecata:duvidas","deprecata:contatos","deprecata:audit"];
-function registrarAlteracao(tipo,payload){
-  try{
-    const log=JSON.parse(localStorage.getItem("deprecata:audit")||"[]");
-    log.unshift({quando:new Date().toISOString(),tipo,payload});
-    localStorage.setItem("deprecata:audit",JSON.stringify(log.slice(0,500)));
-  }catch(e){}
-}
-function snapshotStorage(){
-  const data={versao:"github-ready-2026-06",geradoEm:new Date().toISOString(),keys:{}};
-  STATE_KEYS.forEach(k=>{try{data.keys[k]=JSON.parse(localStorage.getItem(k)||"null");}catch(e){data.keys[k]=localStorage.getItem(k);}});
-  return data;
-}
-function baixarBackupStorage(){
-  const blob=new Blob([JSON.stringify(snapshotStorage(),null,2)],{type:"application/json;charset=utf-8"});
-  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="deprecata-backup-storage.json";a.click();URL.revokeObjectURL(a.href);
-}
-function importarBackupStorage(){
-  const inp=document.createElement("input");inp.type="file";inp.accept="application/json";
-  inp.onchange=()=>{const f=inp.files[0];if(!f)return;const r=new FileReader();r.onload=()=>{try{const data=JSON.parse(r.result);if(!data.keys)throw new Error("backup inválido");Object.entries(data.keys).forEach(([k,v])=>localStorage.setItem(k,JSON.stringify(v)));alert("Backup importado. A página será recarregada.");location.reload();}catch(e){alert("Não foi possível importar o backup.");}};r.readAsText(f);};
-  inp.click();
-}
-
-const KEY="deprecata:cartas";
-let MEM=null;
-const Store={
-  load(){
-    try{const raw=localStorage.getItem(KEY);return raw?JSON.parse(raw):null;}
-    catch(e){return MEM;}
-  },
-  save(arr){
-    MEM=arr;
-    try{localStorage.setItem(KEY,JSON.stringify(arr));registrarAlteracao("cartas:save",{total:Array.isArray(arr)?arr.length:0});}catch(e){/* segue em memória */}
-  }
-};
-
-/* ---------- CONFIGURAÇÃO DA RÉGUA DE COBRANÇA ---------- */
-const CFG_KEY="deprecata:config";
-let cobrancaIntervalo=30; // dias corridos entre cobranças (configurável)
-function loadConfig(){try{const r=localStorage.getItem(CFG_KEY);if(r){const o=JSON.parse(r);if(o&&Number(o.intervalo)>0)cobrancaIntervalo=Number(o.intervalo);}}catch(e){}}
-function saveConfig(){try{localStorage.setItem(CFG_KEY,JSON.stringify({intervalo:cobrancaIntervalo}));}catch(e){}}
-
-/* ---------- ARMAZENAMENTO AUXILIAR (dúvidas / contatos) ---------- */
-const MEM2={};
-function loadKey(key,fallback){try{const r=localStorage.getItem(key);return r?JSON.parse(r):(MEM2[key]??fallback);}catch(e){return MEM2[key]??fallback;}}
-function saveKey(key,val){MEM2[key]=val;try{localStorage.setItem(key,JSON.stringify(val));registrarAlteracao("storage:save",{key,total:Array.isArray(val)?val.length:null});}catch(e){}}
-const DUVIDAS_KEY="deprecata:duvidas", CONTATOS_KEY="deprecata:contatos";
-
-/* ---------- ESTADO ---------- */
-let cartas=[];
-let view="painel";
-let filtro={q:"",tipo:"",prazo:"",status:"",cobranca:"",relator:"",divisao:""};
-let editingId=null;
-let emailCtx=null;
-let cobCtx=null;
-let intim={tipo:null,hab:null,rep:null};
-let intimFlip=false;
-let intimDuvOpen=false;
-let duvidas=[];
-let contatos=[];
-let filtroContato="";
-let filtroOrgao="";
-
-function uid(){return"c"+Date.now().toString(36)+Math.random().toString(36).slice(2,6);}
-
-/* ---------- SEED (exemplos) ---------- */
-function exemplos(){
-  const t=today();
-  const mk=(o)=>Object.assign({
-    id:uid(),tipo:"precatoria",status:"cumprimento",processo:"",processoProtocolo:"",numeroCarta:"",responsavel:"",
-    relator:"",divisao:"DKMS",naturezaParte:"privada",viaProtocolo:"malote",
-    origem:"",destino:"",emailDestino:"",finalidade:"",recebimento:ymd(t),
-    prazo:"",prazoModo:"data",prazoDias:"",prazoDiasTipo:"uteis",
-    obstaculo:{ativo:false,motivo:"",desde:"",restantes:0},
-    cumpridaEm:"",devolverAte:"",reiteracoes:0,protocolada:false,protocoladaEm:"",diversoStatus:"preparar",
-    checklist:{acordao:false,certidao:false,procuracoes:false,despacho:false,mandato:false},
-    comunicacao:{feita:false,data:"",hora:"",servidor:"",meio:""},
-    observacoes:"",criadoEm:new Date().toISOString(),atualizadoEm:new Date().toISOString()
-  },o);
-  return [
-    mk({tipo:"precatoria",status:"cumprimento",processo:"5001234-56.2025.4.03.6000",processoProtocolo:"0008123-45.2025.8.12.0021",numeroCarta:"CP 112/2025",
-      responsavel:"Servidor A. Lima",relator:"Des. Fed. Relator 1",divisao:"DKMS",naturezaParte:"publica",
-      viaProtocolo:"malote",origem:"Turma Regional de Mato Grosso do Sul — TRF3",destino:"2ª Vara Federal de Dourados/MS",
-      emailDestino:"distribuicao.dourados@trf3.jus.br",finalidade:"Oitiva de testemunha",
-      recebimento:ymd(addDias(t,-65)),prazo:ymd(addDias(t,-20)),prazoModo:"data",reiteracoes:0,protocolada:true,protocoladaEm:ymd(addDias(t,-63))}),
-    mk({tipo:"ordem",status:"aguardando",processo:"5009876-54.2025.4.03.6002",processoProtocolo:"",numeroCarta:"CO 45/2025",
-      responsavel:"Gabinete II",relator:"Des. Fed. Relator 2",divisao:"DJMS",naturezaParte:"mp",
-      viaProtocolo:"pje",origem:"Turma Regional de Mato Grosso do Sul — TRF3",destino:"1ª Vara Federal de Campo Grande/MS",
-      emailDestino:"protocolo.campogrande@trf3.jus.br",finalidade:"Intimação de parte",
-      recebimento:ymd(addDias(t,-3)),prazo:ymd(addDias(t,-1)),prazoModo:"data"}),
-    mk({tipo:"precatoria",status:"cumprida",processo:"5004567-12.2025.4.03.6003",processoProtocolo:"0004567-88.2025.8.12.0008",numeroCarta:"CP 88/2025",
-      responsavel:"Servidor B. Souza",relator:"Des. Fed. Relator 3",divisao:"DKMS",naturezaParte:"privada",
-      viaProtocolo:"malote",origem:"Turma Regional de Mato Grosso do Sul — TRF3",destino:"Vara Federal de Corumbá/MS",
-      emailDestino:"vara.corumba@trf3.jus.br",finalidade:"Penhora e avaliação",
-      recebimento:ymd(addDias(t,-20)),prazo:ymd(addDias(t,-2)),prazoModo:"data",
-      cumpridaEm:ymd(addDias(t,-9)),protocolada:true,protocoladaEm:ymd(addDias(t,-18))}),
-    mk({tipo:"precatoria",status:"suspensa",processo:"5007654-33.2025.4.03.6000",processoProtocolo:"0009921-10.2025.8.12.0001",numeroCarta:"CP 120/2025",
-      responsavel:"Servidor A. Lima",relator:"Des. Fed. Relator 1",divisao:"DKMS",naturezaParte:"publica",
-      viaProtocolo:"malote",origem:"Turma Regional de Mato Grosso do Sul — TRF3",destino:"3ª Vara Federal de Campo Grande/MS",
-      emailDestino:"vara3.campogrande@trf3.jus.br",finalidade:"Avaliação de imóvel",
-      recebimento:ymd(addDias(t,-5)),prazo:ymd(addDias(t,10)),prazoModo:"data",
-      obstaculo:{ativo:true,motivo:"Indisponibilidade do PJe — manutenção programada.",desde:ymd(addDias(t,-1)),restantes:8}}),
-  ];
-}
-
-/* =================================================================
-   RENDER — INFRA
-   ================================================================= */
-const $=(s,r=document)=>r.querySelector(s);
-const $$=(s,r=document)=>[...r.querySelectorAll(s)];
-const el=id=>document.getElementById(id);
-
-const TABS=[
-  {id:"painel",label:"Painel de Controle",icon:IC.painel,sub:"Operação, prazos e relatórios num só lugar."},
-  {id:"gestao",label:"Gestão de Cartas",icon:IC.cartas,sub:"O acervo, ordenado pela urgência."},
-  {id:"protocolos",label:"Encaminhamentos",icon:IC.comm,sub:"Registro dos meios de comunicação e estágios por via."},
-  {id:"intimacoes",label:"Intimações",icon:IC.compass,sub:"Para onde vai cada expediente — regra do CNJ."},
-  {id:"contatos",label:"Contatos",icon:IC.contacts,sub:"Juízos, comarcas e secretarias para o cumprimento."},
-];
-
-function renderTabs(){
-  const k=kpis();
-  el("tabs").innerHTML=TABS.map(t=>{
-    let badge="";
-    if(t.id==="gestao"&&(k.venc>0||k.cobDev>0)) badge=`<span class="badge">${k.venc+k.cobDev}</span>`;
-    return `<button class="tab ${t.id===view?'on':''}" onclick="App.go('${t.id}')">${t.icon}<span>${t.label}</span>${badge}</button>`;
-  }).join("");
-}
-
-function go(v){
-  view=v;
-  const t=TABS.find(x=>x.id===v);
-  el("viewTitle").textContent=t.label;
-  el("viewSub").textContent=t.sub;
-  renderTabs();
-  render();
-  el("content").scrollTo?.(0,0);
-  window.scrollTo(0,0);
-}
-
-/* ---------- INDICADORES ---------- */
-function emTramitacao(c){return !CONCLUIDO.includes(c.status);}
-function temPrazoCorrendo(c){return c.prazo && c.status!=="suspensa" && !(c.obstaculo&&c.obstaculo.ativo) && emTramitacao(c);}
-
-/* ---------- RÉGUA DE COBRANÇA (tempo parado) ---------- */
-function suspensoAgora(c){return c.status==="suspensa"||(c.obstaculo&&c.obstaculo.ativo);}
-const NIVEL_LABEL={0:"Em curso",1:"Lembrete",2:"Reiteração",3:"Reiteração formal"};
-// dias corridos em que a carta está parada aguardando cumprimento (desconta período suspenso)
-function diasParado(c){
-  if(!emTramitacao(c))return null;
-  const base=parseD(c.recebimento)||parseD((c.criadoEm||"").slice(0,10))||today();
-  let dias=Math.max(0,Math.round((today()-base)/DOW));
-  dias-=Number(c.diasSuspensos||0);
-  if(suspensoAgora(c)&&c.obstaculo&&c.obstaculo.desde){
-    const atual=Math.max(0,Math.round((today()-parseD(c.obstaculo.desde))/DOW));
-    dias-=atual;
-  }
-  return Math.max(0,dias);
-}
-// objeto-resumo da cobrança de uma carta
-function cobranca(c){
-  if(!emTramitacao(c))return null;
-  const dias=diasParado(c);
-  const INT=cobrancaIntervalo;
-  const susp=suspensoAgora(c);
-  const devidas=susp?Math.floor(dias/INT):Math.floor(dias/INT);
-  const feitas=Number(c.reiteracoes||0);
-  const pendentes=susp?0:Math.max(0,devidas-feitas);
-  const nivel=devidas<=0?0:devidas===1?1:devidas===2?2:3;
-  const proxMarco=(devidas+1)*INT;
-  const faltam=susp?null:(pendentes>0?0:Math.max(0,proxMarco-dias));
-  return {dias,INT,susp,devidas,feitas,pendentes,nivel,proxMarco,faltam};
-}
-// selo de tempo parado p/ tabelas
-function seloParado(c){
-  const cb=cobranca(c);
-  if(!cb)return`<span class="selo neu">—</span>`;
-  if(cb.susp)return`<span class="selo neu" title="Relógio suspenso">${cb.dias}d · susp.</span>`;
-  if(cb.pendentes>0)return`<span class="selo venc" title="${cb.pendentes} cobrança(s) devida(s)">${cb.dias}d · cobrar</span>`;
-  if(cb.faltam!=null&&cb.faltam<=5)return`<span class="selo amb" title="Cobrança em ${cb.faltam} dia(s)">${cb.dias}d</span>`;
-  return`<span class="selo ok">${cb.dias}d</span>`;
-}
-function kpis(){
-  const t=ymd(today());
-  let tram=0,venc=0,vir=0,cump=0,cobDev=0;
-  cartas.forEach(c=>{
-    if(emTramitacao(c)) tram++;
-    if(temPrazoCorrendo(c)){
-      const d=diasEntre(t,c.prazo);
-      if(d<=0) venc++; else if(d<=5) vir++;
-    }
-    if(c.status==="cumprida") cump++;
-    const cb=cobranca(c); if(cb&&cb.pendentes>0) cobDev++;
-  });
-  return {tram,venc,vir,cump,cobDev};
-}
-
-/* ---------- SITUAÇÃO DE PRAZO (selo) ---------- */
-function situacao(c){
-  if(c.status==="cumprida")return{cls:"neu",txt:"Cumprida e devolvida"};
-  if(c.status==="devolvida")return{cls:"neu",txt:"Baixada ao gabinete"};
-  if(c.status==="arquivada")return{cls:"neu",txt:"Arquivada"};
-  if(c.obstaculo&&c.obstaculo.ativo)return{cls:"neu",txt:"Suspensa (obstáculo)"};
-  if(c.status==="suspensa")return{cls:"neu",txt:"Suspensa"};
-  if(!c.prazo)return{cls:"neu",txt:"Sem prazo"};
-  const d=diasEntre(ymd(today()),c.prazo);
-  if(d<0)return{cls:"venc",txt:`Vencida há ${-d} ${-d===1?'dia':'dias'}`};
-  if(d===0)return{cls:"hoje",txt:"Vence hoje"};
-  if(d<=5)return{cls:"amb",txt:`Faltam ${d} ${d===1?'dia':'dias'}`};
-  return{cls:"ok",txt:`Faltam ${d} dias`};
-}
-
-/* ---------- ORDENAÇÃO ---------- */
-function ordenadas(list){
-  const rank=c=>{
-    if(c.status==="suspensa"||(c.obstaculo&&c.obstaculo.ativo))return 1;
-    if(emTramitacao(c))return 0;
-    return 2;
+  
+const
+ payload = {
+    carta_id,
+    qual,
+    object_path,
+    
+tipo_arquivo
+: 
+"docx"
+,
+    
+size_bytes
+: 
+Number
+(fileLike.size ?? 
+0
+),
+    
+nome_arquivo
+: nome_arquivo_docx,
+    
+criado_em
+: 
+new
+ 
+Date
+().toISOString(),
   };
-  const key=c=>c.prazo?parseD(c.prazo).getTime():Infinity;
-  return [...list].sort((a,b)=>{
-    const ra=rank(a),rb=rank(b);
-    if(ra!==rb)return ra-rb;
-    if(ra===0)return key(a)-key(b);
-    return (parseD(b.atualizadoEm.slice(0,10))||0)-(parseD(a.atualizadoEm.slice(0,10))||0);
+  
+const
+ { 
+error
+: insertError } = 
+await
+ supa
+    .from(
+"carta_anexos"
+)
+    .insert(payload);
+  
+if
+ (insertError) 
+throw
+ insertError;
+  
+return
+ { object_path, qual, 
+nome_arquivo
+: nome_arquivo_docx };
+}
+
+Como usar no final do seu gerarCertidao(id, qual)
+No seu gerarCertidao, depois de montar nome_arquivo_docx e gerar o DOCX:
+
+garanta que sua baixarDocx(...) retorna o blob
+chame uploadAnexoDocx(...)
+Exemplo (ajuste só os nomes de variáveis):
+
+// ... depois de montar nome_arquivo_docx e criar body
+
+const
+ blob = baixarDocx(nome_arquivo_docx, body);
+// baixa e upload + insert (não precisa listener novo)
+
+uploadAnexoDocx(id, qual, blob, nome_arquivo_docx)
+  .then(
+() =>
+ toast(
+"DOCX baixado e anexado ✅"
+, 
+"ok"
+))
+  .catch(
+(
+e
+) =>
+ {
+    
+console
+.error(e);
+    toast(
+"Falhou upload/registro no Supabase (veja console)."
+, 
+"err"
+);
   });
-}
 
-/* ---------- FILTRO ---------- */
-function aplicaFiltro(){
-  const q=filtro.q.trim().toLowerCase();
-  return cartas.filter(c=>{
-    if(filtro.tipo && c.tipo!==filtro.tipo)return false;
-    if(filtro.status && c.status!==filtro.status)return false;
-    if(filtro.cobranca){
-      const cb=cobranca(c);
-      if(filtro.cobranca==="devida" && !(cb&&cb.pendentes>0))return false;
-      if(filtro.cobranca==="emdia" && !(cb&&!cb.susp&&cb.pendentes<=0))return false;
-    }
-    if(filtro.relator && c.relator!==filtro.relator)return false;
-    if(filtro.divisao && c.divisao!==filtro.divisao)return false;
-    if(filtro.prazo){
-      const corr=temPrazoCorrendo(c);
-      const d=c.prazo?diasEntre(ymd(today()),c.prazo):null;
-      if(filtro.prazo==="venc" && !(corr&&d<=0))return false;
-      if(filtro.prazo==="vir" && !(corr&&d>0&&d<=5))return false;
-      if(filtro.prazo==="ok" && !(corr&&d>5))return false;
-    }
-    if(q){
-      const blob=[c.processo,c.processoProtocolo,c.numeroCarta,c.origem,c.destino,c.finalidade,c.responsavel,
-        STATUS[c.status],TIPOS[c.tipo],c.relator,NATUREZA[c.naturezaParte]].join(" ").toLowerCase();
-      if(!blob.includes(q))return false;
-    }
-    return true;
-  });
-}
+Se você colar aqui o seu baixarDocx(...) atual (a parte que cria o DOCX), eu adapto exatamente para ele retornar blob sem quebrar seu download atual.
 
-/* =================================================================
-   VIEWS
-   ================================================================= */
-function render(){
-  if(view==="painel")return renderPainel();
-  if(view==="gestao")return renderGestao();
-  if(view==="protocolos")return renderProtocolos();
-  if(view==="intimacoes")return renderIntimacoes();
-  if(view==="contatos")return renderContatos();
-}
 
-function operacionalPainel(){
-  return `<div class="card operacional-card">
-    <div class="card-h">${IC.compass}<h2>Operacional</h2><span class="sub">fluxos, especificações e modelos de cumprimento</span></div>
-    <div class="card-b">
-      <div class="banner gold">${IC.info}<div>Base interna para orientar cada caso: carta de ordem/precatória, PJe, malote, e-mail e AR. Os modelos anexados ao projeto podem ser associados aos registros como referência operacional.</div></div>
-      <div class="op-tabs">
-        <button class="op-tab on">Carta de Ordem</button><button class="op-tab">PJe</button><button class="op-tab">Malote</button><button class="op-tab">E-mail</button><button class="op-tab">AR</button>
-      </div>
-      <div class="op-flow">
-        <div class="op-step"><b>1. Expedir</b>Carta/ofício assinado com diligência, destinatário e forma de resposta.</div>
-        <div class="op-step"><b>2. Encaminhar</b>Selecionar via: PJe, Malote Digital, e-mail ou autoridade.</div>
-        <div class="op-step"><b>3. Comprovar</b>Registrar protocolo, recibo de malote, envio por e-mail ou AR.</div>
-        <div class="op-step"><b>4. Acompanhar</b>Aguardar recebimento, aviso de recebimento ou decisão no incidente.</div>
-        <div class="op-step"><b>5. Juntar</b>Registrar aviso juntado, certidão e retorno recebido.</div>
-      </div>
-      <div class="op-docs">
-        <div class="op-doc"><b>Certidão de expedição</b>“Expedida Carta de Ordem/Precatória, conforme comprovante anexo.”</div>
-        <div class="op-doc"><b>Ofício de comunicação</b>Encaminha decisão/despacho e documentos anexos ao destinatário.</div>
-        <div class="op-doc"><b>Recibo de Malote Digital</b>Contém código de rastreabilidade, destinatário e situação de leitura.</div>
-        <div class="op-doc"><b>Certidão de juntada de AR</b>Digitalização e juntada do AR positivo conforme documento anexo.</div>
-      </div>
-    </div>
-  </div>`;
-}
-function armazenamentoPainel(){
-  let sizes={};STATE_KEYS.forEach(k=>{try{sizes[k]=(localStorage.getItem(k)||"").length}catch(e){sizes[k]=0}});
-  return `<div class="card" style="margin-top:18px">
-    <div class="card-h">${IC.shield}<h2>Armazenamento local</h2><span class="sub">dados preservados no navegador para uso via GitHub Pages</span></div>
-    <div class="card-b">
-      <div class="storage-grid">
-        <div class="storage-tile"><div class="v">${cartas.length}</div><div class="l">Cartas registradas</div></div>
-        <div class="storage-tile"><div class="v">${contatos.length}</div><div class="l">Contatos registrados</div></div>
-        <div class="storage-tile"><div class="v">${(loadKey("deprecata:audit",[])||[]).length}</div><div class="l">Alterações auditadas</div></div>
-        <div class="storage-tile"><div class="v">${Math.round(Object.values(sizes).reduce((a,b)=>a+b,0)/1024)}kb</div><div class="l">Dados em localStorage</div></div>
-      </div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px">
-        <button class="btn" onclick="App.baixarBackupStorage()">${IC.download}Backup JSON</button>
-        <button class="btn" onclick="App.importarBackupStorage()">${IC.upload}Importar backup</button>
-      </div>
-    </div>
-  </div>`;
-}
 
-/* ===== PAINEL ===== */
-function renderPainel(){
-  const k=kpis();
-  const kpiCard=(cls,icon,lab,num,hint)=>`
-    <div class="kpi ${cls}" onclick="App.fromKpi('${cls}')">
-      <div class="lab">${icon}${lab}</div>
-      <div class="num">${num}</div>
-      <div class="hint">${hint}</div>
-    </div>`;
+Supabase AI may not always produce correct answers. Double check responses.
 
-  const concl=cartas.filter(c=>["cumprida","devolvida"].includes(c.status));
-  let noPrazo=0,atraso=0,comReit=0;
-  concl.forEach(c=>{
-    const dentro=c.cumpridaEm&&c.prazo?diasEntre(c.prazo,c.cumpridaEm)<=0:true;
-    if(c.reiteracoes>0)comReit++;
-    else if(dentro)noPrazo++;
-    else atraso++;
-  });
-  const efic=Math.round(noPrazo/(noPrazo+atraso+comReit||1)*100);
-  const porTipo={};Object.keys(TIPOS).forEach(t=>porTipo[t]=cartas.filter(c=>c.tipo===t).length);
-
-  el("content").innerHTML=`
-    <div class="kpis">
-      ${kpiCard("tram",IC.cartas,"Em tramitação",k.tram,"Expedidas, ainda não devolvidas")}
-      ${kpiCard("venc",IC.alert,"Vencidas",k.venc,k.venc?"Ação imediata":"Nenhuma vencida")}
-      ${kpiCard("vir",IC.clock,"A vencer",k.vir,"Nos próximos 5 dias")}
-      ${kpiCard("cob",IC.bell,"Cobranças devidas",k.cobDev,k.cobDev?"Reiteração pendente":`Régua de ${cobrancaIntervalo} dias`)}
-      ${kpiCard("cump",IC.check,"Cumpridas e devolvidas",k.cump,"Retornaram do juízo cumpridor")}
-    </div>
-
-    <div class="grid-2">
-      <div class="card">
-        <div class="card-h">${IC.alert}<h2>Frente de urgência</h2><span class="sub">o que pede ação agora</span></div>
-        <div class="card-b">${frenteUrgencia()}</div>
-      </div>
-      <div class="card">
-        <div class="card-h">${IC.calendar}<h2>Calendário de prazos federais</h2><span class="sub">próximas datas que afetam dias úteis</span></div>
-        <div class="card-b">${calendarioFederal()}</div>
-      </div>
-    </div>
-
-    <div class="card" style="margin-top:18px">
-      <div class="card-h">${IC.bell}<h2>Régua de cobrança</h2><span class="sub">acompanhamento e configuração</span></div>
-      <div class="card-b" style="padding:0">
-        <div class="op-tabs" style="padding:14px 16px 0">
-          <button class="op-tab on" id="reguaTabAcompanhamento" onclick="App.showReguaTab('acompanhamento')">Acompanhamento</button>
-          <button class="op-tab" id="reguaTabConfig" onclick="App.showReguaTab('config')">Configuração</button>
-        </div>
-        <div id="reguaPaneAcompanhamento">${reguaCobranca()}</div>
-        <div id="reguaPaneConfig" class="hidden" style="padding:16px 18px 18px">
-          <div class="banner gold">${IC.info}<div><b>Parâmetro da régua:</b> tempo parado em dias corridos desde o recebimento, congelado durante suspensão. Marcos atuais: <b>${cobrancaIntervalo}d</b> lembrete, <b>${cobrancaIntervalo*2}d</b> reiteração e <b>${cobrancaIntervalo*3}d+</b> reiteração formal.</div></div>
-          <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
-            <div class="field" style="margin:0;max-width:220px"><label>Intervalo entre cobranças</label><input id="cfgIntervalo" type="number" min="5" max="180" value="${cobrancaIntervalo}"></div>
-            <button class="btn primary" onclick="App.setCobrancaIntervalo()">${IC.check}Aplicar</button>
-            <div style="display:flex;gap:8px;flex-wrap:wrap">${[15,30,45,60].map(n=>`<button class="btn sm" onclick="App.setCobrancaIntervalo(${n})">${n} dias</button>`).join("")}</div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="grid-2" style="margin-top:18px">
-      <div class="card">
-        <div class="card-h">${IC.rel}<h2>Indicadores operacionais</h2><span class="sub">eficiência de cumprimento e acervo em números</span></div>
-        <div class="card-b">
-          <div class="stat-grid">
-            <div class="stat"><div class="v">${cartas.length}</div><div class="l">Cartas no acervo</div></div>
-            <div class="stat"><div class="v">${cartas.filter(emTramitacao).length}</div><div class="l">Em tramitação</div></div>
-            <div class="stat"><div class="v">${cartas.filter(c=>c.naturezaParte!=="privada").length}</div><div class="l">Prazo em dobro</div></div>
-            <div class="stat"><div class="v">${cartas.filter(c=>{const cb=cobranca(c);return cb&&cb.pendentes>0;}).length}</div><div class="l">Cobranças devidas</div></div>
-          </div>
-          <div style="margin-top:18px" class="donut-wrap">
-            ${donut([{v:noPrazo,c:"var(--verde)"},{v:comReit,c:"var(--ambar)"},{v:atraso,c:"var(--verm)"}],efic+"%","no prazo")}
-            <div class="legend">
-              <div class="li"><span class="sw" style="background:var(--verde)"></span>No prazo legal<b>${noPrazo}</b></div>
-              <div class="li"><span class="sw" style="background:var(--ambar)"></span>Após reiteração<b>${comReit}</b></div>
-              <div class="li"><span class="sw" style="background:var(--verm)"></span>Com atraso<b>${atraso}</b></div>
-            </div>
-          </div>
-          <div style="margin-top:18px">${barRow("Por tipo",[["Precatória",porTipo.precatoria],["Ordem",porTipo.ordem],["Rogatória",porTipo.rogatoria]])}</div>
-        </div>
-      </div>
-      ${operacionalPainel()}
-    </div>
-
-    <div class="card" style="margin-top:18px">
-      <div class="card-h">${IC.phone}<h2>Comunicações urgentes</h2><span class="sub">confirmação telefônica / telegrama</span></div>
-      <div class="card-b">${comunicacoesUrgentes()}</div>
-    </div>`;
-}
-
-function showReguaTab(tab){
-  const acompanhamento=tab!=="config";
-  const a=el("reguaPaneAcompanhamento"), c=el("reguaPaneConfig"), ba=el("reguaTabAcompanhamento"), bc=el("reguaTabConfig");
-  if(!a||!c||!ba||!bc)return;
-  a.classList.toggle("hidden",!acompanhamento);
-  c.classList.toggle("hidden",acompanhamento);
-  ba.classList.toggle("on",acompanhamento);
-  bc.classList.toggle("on",!acompanhamento);
-}
-
-function calendarioFederal(){
-  const t=today(); const lim=addDias(t,120);
-  const itens=[];
-  for(let y=t.getFullYear();y<=lim.getFullYear();y++){
-    const m=ferDoAno(y);
-    Object.keys(m).forEach(k=>{
-      const d=parseD(k);
-      if(d>=t && d<=lim) itens.push({d,...m[k]});
-    });
-  }
-  // condensa recesso em uma faixa
-  const recesso=itens.filter(i=>i.tag==="recesso").sort((a,b)=>a.d-b.d);
-  const outros=itens.filter(i=>i.tag!=="recesso").sort((a,b)=>a.d-b.d);
-  const linhas=[];
-  if(recesso.length){
-    const ini=recesso[0].d, fim=recesso[recesso.length-1].d;
-    linhas.push({d:ini,nome:"Recesso forense",tag:"suspende a contagem de prazos",
-      range:`${ini.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})}–${fim.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"})}`});
-  }
-  outros.slice(0,8).forEach(i=>linhas.push({d:i.d,nome:i.nome,tag:i.tag==="forense"?"feriado forense":"feriado nacional"}));
-  linhas.sort((a,b)=>a.d-b.d);
-  if(!linhas.length)return`<p class="muted small">Sem feriados nos próximos 120 dias.</p>`;
-  return `<div class="cal-list">${linhas.map(i=>{
-    const dd=diasEntre(ymd(today()),ymd(i.d));
-    const when=dd===0?"hoje":dd===1?"amanhã":`em ${dd} dias`;
-    const soon=dd<=7?"soon":"";
-    const dlabel=i.range||i.d.toLocaleDateString("pt-BR",{day:"2-digit",month:"2-digit"});
-    return `<div class="cal-row">
-      <div class="cal-date">${dlabel}</div>
-      <div><div class="cal-name">${i.nome}</div><div class="cal-tag">${i.tag}</div></div>
-      <div class="cal-when ${soon}">${when}</div>
-    </div>`;
-  }).join("")}</div>`;
-}
-
-function frenteUrgencia(){
-  const urg=ordenadas(cartas.filter(temPrazoCorrendo)).filter(c=>{
-    const d=diasEntre(ymd(today()),c.prazo);return d<=5;
-  }).slice(0,6);
-  const cob=ordenadas(cartas.filter(c=>{const cb=cobranca(c);return cb&&cb.pendentes>0;})).slice(0,6);
-  if(!urg.length&&!cob.length)
-    return `<div class="empty" style="padding:30px 10px"><div class="em-mark">${IC.check}</div><h3>Nada urgente</h3><p>Nenhuma carta vence nos próximos cinco dias e nada está parado além da régua de cobrança.</p></div>`;
-  let h="";
-  if(urg.length){
-    h+=urg.map(c=>{
-      const s=situacao(c);
-      return `<div class="cal-row" onclick="App.openForm('${c.id}')" style="cursor:pointer">
-        <span class="selo ${s.cls}">${s.txt}</span>
-        <div style="flex:1"><div class="cal-name">${TIPOS[c.tipo]} · ${c.numeroCarta||c.processo}</div>
-        <div class="cal-tag">${c.destino||"—"} · ${c.finalidade||"—"}</div></div>
-        <span class="natureza ${c.naturezaParte}">${c.naturezaParte!=="privada"?IC.shield:""}${NATUREZA[c.naturezaParte]}</span>
-      </div>`;
-    }).join("");
-  }
-  if(cob.length){
-    h+=`<div class="banner warn" style="margin-top:14px">${IC.bell}<div><b>${cob.length}</b> carta(s) parada(s) além da régua de ${cobrancaIntervalo} dias, com cobrança devida.</div></div>`;
-    h+=cob.map(c=>{const cb=cobranca(c);
-      return `<div class="cal-row" onclick="App.abrirComunicacoes('${c.id}',true)" style="cursor:pointer">
-        <span class="selo venc">${cb.dias}d parada</span>
-        <div style="flex:1"><div class="cal-name">${TIPOS[c.tipo]} · ${c.numeroCarta||c.processo}</div>
-        <div class="cal-tag">${c.destino||"—"} · ${cb.pendentes} cobrança(s) em atraso</div></div>
-        <span class="selo amb">${NIVEL_LABEL[cb.nivel]}</span>
-      </div>`;}).join("");
-  }
-  return h;
-}
-
-/* ===== GESTÃO DE CARTAS ===== */
-function renderGestao(){
-  el("content").innerHTML=`
-    <div class="toolbar">
-      <div class="search">${IC.search}<input id="q" placeholder="Buscar por processo, carta, juízo, finalidade, responsável…" value="${esc(filtro.q)}"></div>
-      <select class="filt" id="fTipo">${opts({"":"Todos os tipos",...TIPOS},filtro.tipo)}</select>
-      <select class="filt" id="fPrazo">${opts({"":"Qualquer prazo",venc:"Vencidas",vir:"A vencer (5 dias)",ok:"Em prazo"},filtro.prazo)}</select>
-      <select class="filt" id="fStatus">${opts({"":"Todos os status",...STATUS},filtro.status)}</select>
-      <select class="filt" id="fCobranca">${opts({"":"Cobrança: todas",devida:"Cobrança devida",emdia:"Em dia"},filtro.cobranca)}</select>
-      <select class="filt" id="fRelator">${opts({"":"Todos os relatores",...Object.fromEntries(RELATORES.map(r=>[r,r]))},filtro.relator)}</select>
-      <select class="filt" id="fDivisao">${opts({"":"Todas as divisões",...DIVISAO},filtro.divisao)}</select>
-      <button class="btn" onclick="App.exportCSV()">${IC.download}Exportar</button>
-    </div>
-    <div id="listMount"></div>
-    <div class="foot">
-      <span id="contagem"></span>
-      <span class="spacer"></span>
-      <button class="link-btn" onclick="App.carregarExemplos()">Carregar exemplos</button>
-      <button class="link-btn" onclick="App.limparTudo()" style="color:var(--verm)">Limpar tudo</button>
-      <span class="muted">· Dados salvos neste navegador</span>
-    </div>`;
-  bindFiltros();
-  renderList();
-}
-function bindFiltros(){
-  el("q").addEventListener("input",e=>{filtro.q=e.target.value;renderList();});
-  el("fTipo").addEventListener("change",e=>{filtro.tipo=e.target.value;renderList();});
-  el("fPrazo").addEventListener("change",e=>{filtro.prazo=e.target.value;renderList();});
-  el("fStatus").addEventListener("change",e=>{filtro.status=e.target.value;renderList();});
-  el("fCobranca").addEventListener("change",e=>{filtro.cobranca=e.target.value;renderList();});
-  el("fRelator").addEventListener("change",e=>{filtro.relator=e.target.value;renderList();});
-  el("fDivisao").addEventListener("change",e=>{filtro.divisao=e.target.value;renderList();});
-}
-function renderList(){
-  const filt=aplicaFiltro();
-  const list=ordenadas(filt);
-  const mount=el("listMount");
-  const ativo=filtro.q||filtro.tipo||filtro.prazo||filtro.status||filtro.cobranca||filtro.relator||filtro.divisao;
-  el("contagem").textContent = ativo ? `${filt.length} de ${cartas.length} cartas` : `${cartas.length} carta${cartas.length===1?"":"s"}`;
-
-  if(!cartas.length){
-    mount.innerHTML=`<div class="tbl-wrap"><div class="empty">
-      <div class="em-mark">${IC.cartas}</div><h3>Nenhuma carta cadastrada</h3>
-      <p>Comece registrando a primeira carta precatória, de ordem ou rogatória — ou carregue exemplos para explorar.</p>
-      <div class="actions"><button class="btn primary" onclick="App.openForm()">${IC.plus}Cadastrar primeira carta</button>
-      <button class="btn" onclick="App.carregarExemplos()">Carregar exemplos</button></div></div></div>`;
-    return;
-  }
-  if(!list.length){
-    mount.innerHTML=`<div class="tbl-wrap"><div class="empty">
-      <div class="em-mark">${IC.search}</div><h3>Nada encontrado</h3>
-      <p>Nenhuma carta corresponde aos filtros ativos. Ajuste a busca para ver mais resultados.</p>
-      <div class="actions"><button class="btn" onclick="App.limparFiltros()">Limpar filtros</button></div></div></div>`;
-    return;
-  }
-  mount.innerHTML=`<div class="tbl-wrap"><table>
-    <thead><tr>
-      <th>Tipo</th><th>Processo nosso</th><th>Carta protocolizada</th><th>Destino</th><th>Finalidade</th>
-      <th>Parado</th><th>Prazo</th><th></th>
-    </tr></thead><tbody>
-    ${list.map(rowHTML).join("")}
-    </tbody></table></div>`;
-}
-function rowHTML(c){
-  const s=situacao(c);
-  const nat=c.naturezaParte!=="privada"
-    ? `<span class="natureza ${c.naturezaParte}" title="${NATUREZA[c.naturezaParte]} — prazo em dobro">${IC.shield}${c.naturezaParte==="mp"?"MP":"Fazenda"}</span>`:"";
-  const obst=(c.obstaculo&&c.obstaculo.ativo)?`<div class="obst-flag">${IC.pause}Obstáculo (art. 221)</div>`:"";
-  return `<tr onclick="App.openForm('${c.id}')">
-    <td><div style="font-weight:600">${TIPOS[c.tipo]}</div><span class="tag-div ${c.divisao}">${c.divisao}</span>${viaPill(c)}</td>
-    <td><div class="cnj">${c.processo||"—"}</div>${c.processoProtocolo?`<span class="proc-protocolado" title="Processo protocolado no destino">Protocolado: ${esc(c.processoProtocolo)}</span>`:""}<div style="margin-top:5px"><span class="pill st-${c.status}"><span class="dot"></span>${STATUS[c.status]}</span></div></td>
-    <td><div class="cnj">${c.processoProtocolo?esc(c.processoProtocolo):'<span class="muted">não protocolizada</span>'}</div>${c.numeroCarta?`<div class="sub-cell">${esc(c.numeroCarta)}</div>`:""}</td>
-    <td><div>${esc(c.destino||"—")}</div></td>
-    <td><div>${esc(c.finalidade||"—")} ${nat}</div>${c.responsavel?`<div class="sub-cell">${esc(c.responsavel)}</div>`:""}${obst}</td>
-    <td>${seloParado(c)}</td>
-    <td><div style="font-weight:600;font-size:12.5px">${c.prazo?fmtBR(c.prazo):"—"}</div><div style="margin-top:4px"><span class="selo ${s.cls}">${s.txt}</span></div></td>
-    <td onclick="event.stopPropagation()"><div class="act-cell">
-      <button class="combtn" title="Comunicações — padrões de e-mail e cobrança" onclick="App.abrirComunicacoes('${c.id}')">${IC.mail}<span>Comunicações</span></button>
-      <button class="iconbtn ${c.protocolada?'ok':''}" title="${c.protocolada?'Protocolizada — ver/editar':'Registrar protocolo'}" onclick="App.openProtocolo('${c.id}')">${IC.stamp}</button>
-      <button class="iconbtn danger" title="Excluir" onclick="App.excluir('${c.id}')">${IC.trash}</button>
-    </div></td>
-  </tr>`;
-}
-function viaPill(c){
-  const via=c.viaProtocolo||sugereVia(c)||"malote";
-  const seq=ENC_STATUS[via]||ENC_STATUS.malote;
-  let st=c.encaminhamentoStatus||c.diversoStatus||seq[0];
-  if(!seq.includes(st)) st=seq[0];
-  const done=["protocolado","enviado","recebido","aviso_juntado","decisao_incidente","encaminhado"].includes(st);
-  const cls=st==="recebido"||st==="aviso_juntado"||st==="decisao_incidente"?"ok":done?"azul":"amb";
-  const viaNome=(VIA[via]||via).split(" (")[0];
-  return `<div class="viapill" onclick="event.stopPropagation();App.openProtocolo('${c.id}')" title="Registro de encaminhamentos — clique para editar via e estágio">
-    <span class="vp-k">${esc(viaNome)}</span><span class="vp-s ${cls}">${esc(ENC_LABEL[st]||st)}</span></div>`;
-}
-function avancarDiverso(id){
-  const c=cartas.find(x=>x.id===id);if(!c)return;
-  const via=c.viaProtocolo||"malote";
-  const seq=ENC_STATUS[via]||ENC_STATUS.malote;
-  const atual=c.encaminhamentoStatus||seq[0];
-  c.encaminhamentoStatus=seq[(seq.indexOf(atual)+1)%seq.length]||seq[0];
-  c.diversoStatus=c.encaminhamentoStatus;
-  c.atualizadoEm=new Date().toISOString();persist(false);renderList();
-  toast("Fase: "+(ENC_LABEL[c.encaminhamentoStatus]||c.encaminhamentoStatus),"ok");
-}
-
-/* ===== PROTOCOLOS ===== */
-function renderProtocolos(){
-  const protocoladas=cartas.filter(c=>c.protocolada||c.encaminhamentoStatus).sort((a,b)=>(parseD(b.protocoladaEm)||0)-(parseD(a.protocoladaEm)||0));
-  const aProtocolar=ordenadas(cartas.filter(c=>emTramitacao(c)&&!c.protocolada&&!c.encaminhamentoStatus));
-  el("content").innerHTML=`
-    <div class="banner info">${IC.info}<div>O registro de encaminhamentos controla <b>vias separadas</b>: PJe, Malote Digital, e-mail e autoridade/órgão externo. Cada via possui seus próprios estágios avançados.</div></div>
-    <div class="via-strip" style="margin-bottom:18px">
-      ${viaCard("pje","PJe direto","Protocolo no sistema",IC.route,protocoladas.filter(c=>c.viaProtocolo==="pje").length)}
-      ${viaCard("malote","Malote Digital","Remessa por malote",IC.send,protocoladas.filter(c=>c.viaProtocolo==="malote").length)}
-      ${viaCard("email","E-mail","Comunicação eletrônica",IC.mail,protocoladas.filter(c=>c.viaProtocolo==="email").length)}
-      ${viaCard("central","Autoridade Central","Rogatória internacional",IC.scale,protocoladas.filter(c=>["central","autoridade"].includes(c.viaProtocolo)).length)}
-    </div>
-    <div class="card">
-      <div class="card-h">${IC.stamp}<h2>Meios de Comunicação Registrados</h2><span class="sub">${protocoladas.length} registro(s)</span></div>
-      <div class="card-b" style="padding:0">
-        ${protocoladas.length?`<table><thead><tr><th>Carta</th><th>Proc. protocolizado</th><th>Via</th><th>Protocolada em</th><th>Destino</th><th></th></tr></thead><tbody>${protocoladas.map(protocoloRow).join("")}</tbody></table>`
-        :`<div class="empty"><div class="em-mark">${IC.stamp}</div><h3>Nenhum protocolo registrado</h3><p>Use o botão de protocolo na Gestão de Cartas para registrar uma carta efetivamente protocolizada.</p></div>`}
-      </div>
-    </div>
-    <div class="card" style="margin-top:18px">
-      <div class="card-h">${IC.send}<h2>A encaminhar</h2><span class="sub">${aProtocolar.length} carta(s) em tramitação ainda não protocolizada(s)</span></div>
-      <div class="card-b" style="padding:0">
-        ${aProtocolar.length?`<table><thead><tr><th>Carta</th><th>Destino</th><th>Via sugerida</th><th></th></tr></thead><tbody>${aProtocolar.map(aProtocolarRow).join("")}</tbody></table>`
-        :`<div class="empty"><div class="em-mark">${IC.check}</div><h3>Tudo protocolizado</h3><p>Não há cartas em tramitação pendentes de protocolo.</p></div>`}
-      </div>
-    </div>`;
-}
-function protocoloRow(c){
-  return `<tr>
-    <td><div style="font-weight:600">${c.numeroCarta||TIPOS[c.tipo]} <span class="tag-div ${c.divisao}">${c.divisao}</span></div><div class="cnj sub-cell">${c.processo}</div></td>
-    <td><div class="cnj">${c.processoProtocolo?esc(c.processoProtocolo):"—"}</div></td>
-    <td><span class="pill st-cumprida"><span class="dot"></span>${VIA[c.viaProtocolo].split(" (")[0]}</span></td>
-    <td>${c.protocoladaEm?fmtBR(c.protocoladaEm):"—"}</td>
-    <td>${esc(c.destino||"—")}</td>
-    <td><div class="act-cell">
-      <button class="btn sm" onclick="App.openProtocolo('${c.id}')">${IC.stamp}Editar</button>
-      <button class="btn sm" onclick="App.abrirComunicacoes('${c.id}')">${IC.mail}Comunicar</button>
-    </div></td>
-  </tr>`;
-}
-function aProtocolarRow(c){
-  const viaSug=sugereVia(c);
-  return `<tr>
-    <td><div style="font-weight:600">${c.numeroCarta||TIPOS[c.tipo]}</div><div class="cnj sub-cell">${c.processo}</div></td>
-    <td>${esc(c.destino||"—")}</td>
-    <td><span class="pill ${c.viaProtocolo===viaSug?'st-cumprida':'st-aguardando'}"><span class="dot"></span>${VIA[c.viaProtocolo].split(" (")[0]}</span>${c.viaProtocolo!==viaSug?`<div class="cal-tag" style="margin-top:3px">sugerido: ${VIA[viaSug].split(" (")[0]}</div>`:""}</td>
-    <td><div class="act-cell">
-      <button class="btn sm" onclick="App.gerarPeca('${c.id}')">${IC.file}Peça</button>
-      <button class="btn sm primary" onclick="App.openProtocolo('${c.id}')">${IC.stamp}Protocolar</button>
-    </div></td>
-  </tr>`;
-}
-function viaCard(via,titulo,sub,icon,n){
-  return `<div class="via-mini">
-    <div class="via-ic">${icon}</div>
-    <div class="via-txt"><div class="via-t">${titulo}</div><div class="via-s">${sub}</div></div>
-    <div class="via-n">${n}</div>
-  </div>`;
-}
-function sugereVia(c){
-  const dest=(c.destino||"").toLowerCase();
-  if(c.tipo==="rogatoria")return"central";
-  if(/3ª região|3a região|trf3|vara federal|jef|seção judiciária de mato grosso|/.test(dest)&&/vara federal|jef|3ª região|3a região|trf3/.test(dest))return"pje";
-  if(/vara federal|jef/.test(dest))return"pje";
-  return"malote";
-}
-
-/* ===== RÉGUA DE COBRANÇA (usada no Painel) ===== */
-function reguaCobranca(){
-  const list=ordenadas(cartas.filter(emTramitacao));
-  if(!list.length)return`<div class="empty" style="padding:34px"><div class="em-mark">${IC.bell}</div><h3>Nada parado</h3><p>Nenhuma carta em tramitação aguardando cumprimento.</p></div>`;
-  const devidas=list.filter(c=>{const cb=cobranca(c);return cb&&cb.pendentes>0;}).length;
-  const aviso=devidas?`<div class="banner warn" style="margin:14px 16px 0">${IC.alert}<div><b>${devidas}</b> carta(s) com cobrança devida. A régua dispara um alarme a cada <b>${cobrancaIntervalo} dias corridos</b> de carta parada: ${cobrancaIntervalo}d (lembrete), ${cobrancaIntervalo*2}d (reiteração), ${cobrancaIntervalo*3}d+ (reiteração formal).</div></div>`:`<div class="banner info" style="margin:14px 16px 0">${IC.info}<div>Tudo em dia na régua de ${cobrancaIntervalo} dias. O relógio de cada carta conta do recebimento e congela enquanto houver suspensão (art. 221).</div></div>`;
-  return aviso+`<table style="margin-top:12px"><thead><tr><th>Carta</th><th>Parada há</th><th>Cobranças</th><th>Próxima</th><th></th></tr></thead><tbody>
-    ${list.map(c=>{
-      const cb=cobranca(c);
-      let seloP;
-      if(cb.susp)seloP=`<span class="selo neu">${IC.pause}suspenso · ${cb.dias}d</span>`;
-      else if(cb.pendentes>0)seloP=`<span class="selo venc">${cb.dias} dias</span>`;
-      else if(cb.faltam!=null&&cb.faltam<=5)seloP=`<span class="selo amb">${cb.dias} dias</span>`;
-      else seloP=`<span class="selo ok">${cb.dias} dias</span>`;
-      const prox=cb.susp?'<span class="muted small">relógio suspenso</span>':cb.pendentes>0?`<span style="color:var(--verm);font-weight:700">cobrar agora</span>`:`em ${cb.faltam} dia(s)`;
-      return `<tr>
-        <td><div style="font-weight:600">${c.numeroCarta||TIPOS[c.tipo]} <span class="tag-div ${c.divisao}">${c.divisao}</span></div><div class="cnj sub-cell">${c.processo}</div><div class="small muted">→ ${esc(c.destino||"—")}</div></td>
-        <td>${seloP}</td>
-        <td><div style="font-weight:700">${cb.feitas}</div>${cb.pendentes>0?`<div class="small" style="color:var(--verm);font-weight:600">${cb.pendentes} em atraso</div>`:`<div class="small muted">${NIVEL_LABEL[cb.nivel]}</div>`}</td>
-        <td>${prox}</td>
-        <td><button class="btn sm ${cb.pendentes>0?'primary':''}" onclick="App.abrirComunicacoes('${c.id}',true)">${IC.bell}Cobrar</button></td>
-      </tr>`;
-    }).join("")}
-  </tbody></table>`;
-}
-function comunicacoesUrgentes(){
-  const list=cartas.filter(c=>c.comunicacao&&c.comunicacao.feita);
-  const pendentes=cartas.filter(c=>temPrazoCorrendo(c)&&diasEntre(ymd(today()),c.prazo)<=2&&!(c.comunicacao&&c.comunicacao.feita));
-  let h="";
-  if(pendentes.length){
-    h+=`<div class="banner warn">${IC.alert}<div><b>${pendentes.length}</b> carta(s) urgente(s) sem confirmação registrada. Toda transmissão por telefone ou telegrama exige confirmação posterior.</div></div>`;
-  }
-  if(list.length){
-    h+=list.map(c=>`<div class="cal-row">
-      <div style="flex:1"><div style="font-weight:600">${c.numeroCarta||c.processo}</div>
-        <div class="cal-tag">${c.comunicacao.meio||"telefone"} · ${c.comunicacao.servidor||"—"}</div></div>
-      <div class="small muted">${c.comunicacao.data?fmtBR(c.comunicacao.data):"—"} ${c.comunicacao.hora||""}</div>
-      <button class="iconbtn" onclick="App.openForm('${c.id}')">${IC.edit}</button>
-    </div>`).join("");
-  }
-  if(!h) h=`<div class="empty" style="padding:30px"><div class="em-mark">${IC.phone}</div><h3>Nenhuma confirmação registrada</h3><p>Registre data, hora e servidor ao confirmar uma carta transmitida por telefone ou telegrama, dentro da carta correspondente.</p></div>`;
-  return h;
-}
-
-function setCobrancaIntervalo(n){
-  const v=n||Number(el("cfgIntervalo")?.value);
-  if(!v||v<5){toast("Informe um intervalo de ao menos 5 dias.","err");return;}
-  cobrancaIntervalo=Math.round(v);saveConfig();
-  toast(`Régua ajustada para ${cobrancaIntervalo} dias.`,"ok");
-  renderPainel();
-}
-function donut(parts,big,small){
-  const tot=parts.reduce((s,p)=>s+p.v,0)||1;
-  let acc=0;const R=52,C=2*Math.PI*R;
-  const segs=parts.map(p=>{
-    const frac=p.v/tot,len=frac*C,dash=`${len} ${C-len}`,off=-acc*C;acc+=frac;
-    return `<circle cx="64" cy="64" r="${R}" fill="none" stroke="${p.c}" stroke-width="20" stroke-dasharray="${dash}" stroke-dashoffset="${off}" transform="rotate(-90 64 64)"/>`;
-  }).join("");
-  return `<svg viewBox="0 0 128 128" width="148" height="148">
-    <circle cx="64" cy="64" r="${R}" fill="none" stroke="var(--papel-2)" stroke-width="20"/>${segs}
-    <text x="64" y="60" text-anchor="middle" font-family="var(--serif)" font-size="26" font-weight="600" fill="var(--tinta)">${big}</text>
-    <text x="64" y="78" text-anchor="middle" font-size="10" fill="var(--tinta-2)">${small}</text></svg>`;
-}
-function barRow(titulo,rows){
-  const max=Math.max(1,...rows.map(r=>r[1]));
-  return `<div class="section-title" style="font-size:13px">${titulo}</div>${rows.map(([l,v])=>`
-    <div style="margin-bottom:9px"><div style="display:flex;justify-content:space-between;font-size:12.5px"><span>${l}</span><b>${v}</b></div>
-    <div class="bar-track"><div class="bar-fill" style="width:${v/max*100}%;background:var(--bordo)"></div></div></div>`).join("")}`;
-}
-
-/* =================================================================
-   INTIMAÇÕES PJe — para onde vai o expediente (regra CNJ / TRF3)
-   ================================================================= */
-const DESTINO={
-  djen:{cls:"djen",nome:"DJEN",full:"Diário de Justiça Eletrônico Nacional — publicação"},
-  dom:{cls:"dom",nome:"Domicílio Judicial Eletrônico",full:"Canal direto do CNJ"},
-  sis:{cls:"sis",nome:"Sistema (PJe)",full:"Tratamento automático conforme o cadastro"},
-  man:{cls:"man",nome:"Outro meio (manual)",full:"Carta, oficial de justiça — definido pelo servidor"}
-};
-// porta exata da regra do CNJ (tipo de pessoa × Domicílio × representação)
-function intimDestino(tipo,hab,rep){
-  if(!tipo||!hab||!rep)return null;
-  if(tipo==="pub")
-    return hab==="sim"
-      ?{d:"dom",why:"Ente público habilitado: o Domicílio é o canal obrigatório."}
-      :{d:"sis",why:"Situação não esperada — todo órgão público deve usar o Domicílio; o Sistema trata o caso."};
-  if(tipo==="priv"){
-    if(rep==="adv")return{d:"djen",why:"Há advogado constituído: intima-se por publicação no DJEN, habilitada ou não."};
-    if(rep==="dpu")return{d:"man",why:"A DPU representa pessoas físicas. Para PJ privada, selecione advogado, procuradoria ou nenhum."};
-    if(rep==="nada")return hab==="sim"
-      ?{d:"dom",why:"Sem advogado e sem procuradoria, mas habilitada: vai direto pelo Domicílio."}
-      :{d:"man",why:"Sem advogado, sem procuradoria e fora do Domicílio: o servidor define o meio."};
-    return hab==="sim"
-      ?{d:"dom",why:"Possui procuradoria e está habilitada (ex.: CEF): segue pelo Domicílio."}
-      :{d:"sis",why:"Possui procuradoria mas fora do Domicílio: o Sistema trata automaticamente."};
-  }
-  // pessoa física
-  if(rep==="adv")return{d:"djen",why:"Há advogado constituído: intima-se pelo DJEN, habilitada ou não."};
-  if(rep==="dpu")return{d:"dom",why:"A DPU já é habilitada no Domicílio — a intimação vai para lá mesmo que a parte não esteja cadastrada."};
-  if(rep==="proc")return{d:"dom",why:"Para pessoa física, a procuradoria é a DPU, que está no Domicílio."};
-  return hab==="sim"
-    ?{d:"dom",why:"Sem advogado e sem procuradoria, mas habilitada: vai pelo Domicílio."}
-    :{d:"man",why:"Sem representação e fora do Domicílio: o servidor define outro meio."};
-}
-function intimPick(q,v){intim[q]=v;renderIntimacoes();}
-
-const INTIM_PRINCIPIOS=[
-  ["Tem advogado? Publicação","Advogado constituído nos autos → intima-se pelo <b>DJEN</b>, habilitada ou não no Domicílio."],
-  ["Sem advogado, habilitada? Domicílio","Parte no <b>Domicílio</b> e sem representação nos autos → o canal direto resolve."],
-  ["Ente público? Sempre Domicílio","Uso <b>obrigatório</b> para órgãos públicos; quando aparece “Sistema”, é exceção não prevista."],
-  ["A DPU muda o jogo","A <b>DPU já é habilitada</b>; ao representar a parte, puxa a intimação para o Domicílio."],
-  ["Nenhum canal eletrônico? Manual","Sem advogado, sem procuradoria e fora do Domicílio → carta ou oficial de justiça."],
-  ["Procuradoria sem habilitação? Sistema","PJ privada com procuradoria mas fora do Domicílio → o <b>Sistema</b> decide pelo cadastro."]
-];
-const INTIM_CASOS=[
-  ["INSS","Autarquia · público","Habilitado · PGF","dom"],
-  ["Município","Público","Habilitado · procuradoria","dom"],
-  ["CREA / CRM","Autarquia · público","Habilitado · proc. própria","dom"],
-  ["Caixa Econômica Federal","Empresa pública · privado","Habilitada · procuradoria","dom"],
-  ["Banco do Brasil","Economia mista · privado","Habilitado · procuradoria","dom"],
-  ["Correios (ECT)","Empresa pública · privado","Habilitada · procuradoria","dom"],
-  ["Infraero","Empresa pública · privado","Procuradoria · não habilitada","sis"],
-  ["Petrobras","Economia mista · privado","Advogado / procuradoria","djen"],
-  ["Empresa privada","Privado","Advogado constituído","djen"],
-  ["Pessoa física assistida","Pessoa física","Representada pela DPU","dom"]
-];
-
-function renderIntimacoes(){
-  const segBtn=(q,v,lab)=>`<button class="intim-opt ${intim[q]===v?'on':''}" onclick="App.intimPick('${q}','${v}')">${lab}</button>`;
-  const r=intimDestino(intim.tipo,intim.hab,intim.rep);
-  const resultado = r
-    ? `<div class="intim-res"><div class="intim-res-lab">Destino do expediente</div>
-        <span class="dst ${DESTINO[r.d].cls}">${DESTINO[r.d].nome}</span>
-        <p class="intim-why">${r.why}</p></div>`
-    : `<div class="intim-res empty"><div class="intim-res-lab">Destino do expediente</div>
-        <span class="dst neu">Selecione as três características acima</span></div>`;
-  el("content").innerHTML=`
-    <div class="banner info">${IC.compass}<div>Para onde vai a intimação ou o expediente no <b>PJe</b>, conforme a regra do CNJ aplicada no TRF3. Útil ao definir como comunicar partes e ao escolher o meio quando não há via eletrônica.</div></div>
-
-    <div class="card">
-      <div class="card-h">${IC.check}<h2>VIAS REGISTRADAS</h2><span class="sub">exemplos aplicados à tabela</span></div>
-      <div class="card-b" style="padding:0"><table>
-        <thead><tr><th>Órgão / parte</th><th>Tipo</th><th>Situação</th><th>Destino</th></tr></thead>
-        <tbody>${INTIM_CASOS.map(c=>`<tr>
-          <td style="font-weight:600">${c[0]}</td><td class="small">${c[1]}</td><td class="small">${c[2]}</td>
-          <td><span class="dst ${DESTINO[c[3]].cls} sm">${DESTINO[c[3]].nome}</span></td></tr>`).join("")}</tbody>
-      </table></div>
-      <div class="duv-foot">
-        <button class="duv-toggle ${intimDuvOpen?'open':''}" onclick="App.intimDuvToggle()">
-          ${IC.edit}<span>Dúvidas e anotações</span>
-          ${duvidas.length?`<span class="duv-count">${duvidas.length}</span>`:""}
-          <span class="duv-chev">${IC.chevron}</span>
-        </button>
-        <div class="duv-body ${intimDuvOpen?'open':''}">
-          <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin:4px 0 14px">
-            <div class="field" style="margin:0;flex:1;min-width:240px"><label>Nova dúvida</label>
-              <input id="duvidaInput" placeholder="ex.: como intimar conselho profissional sem procuradoria?" onkeydown="if(event.key==='Enter')App.addDuvida()"></div>
-            <button class="btn primary" onclick="App.addDuvida()">${IC.plus}Adicionar</button>
-          </div>
-          ${duvidas.length?`<div class="duv-list">${duvidas.slice().reverse().map(d=>`
-            <div class="duv-row ${d.resolvida?'done':''}">
-              <button class="iconbtn" title="${d.resolvida?'Reabrir':'Marcar resolvida'}" onclick="App.toggleDuvida('${d.id}')">${d.resolvida?IC.check:IC.clock}</button>
-              <div class="duv-txt">${esc(d.texto)}<div class="duv-meta">${fmtBR(d.data)}</div></div>
-              <button class="iconbtn danger" title="Excluir" onclick="App.delDuvida('${d.id}')">${IC.trash}</button>
-            </div>`).join("")}</div>`
-          :`<p class="small muted" style="margin:0">Nenhuma dúvida registrada. Anote aqui o que precisar confirmar com a Corregedoria, o CNJ ou a unidade de destino.</p>`}
-        </div>
-      </div>
-    </div>
-
-    <div class="grid-2" style="margin-top:18px">
-      <div class="card">
-        <div class="card-h">${IC.search}<h2>Localizador de caso</h2><span class="sub">três características → o canal correto</span></div>
-        <div class="card-b">
-          <div class="intim-q"><label>1 · Tipo de pessoa</label><div class="intim-opts">
-            ${segBtn("tipo","pub","PJ de direito público")}${segBtn("tipo","priv","PJ de direito privado")}${segBtn("tipo","fis","Pessoa física")}
-          </div></div>
-          <div class="intim-q"><label>2 · Domicílio Judicial Eletrônico</label><div class="intim-opts">
-            ${segBtn("hab","sim","Habilitada")}${segBtn("hab","nao","Não habilitada")}
-          </div></div>
-          <div class="intim-q"><label>3 · Representação nos autos</label><div class="intim-opts">
-            ${segBtn("rep","adv","Tem advogado")}${segBtn("rep","proc","Tem procuradoria")}${segBtn("rep","dpu","Tem a DPU")}${segBtn("rep","nada","Não tem nenhum")}
-          </div></div>
-          ${resultado}
-        </div>
-      </div>
-      <div class="flip-card">
-        <div class="flip-inner ${intimFlip?'flipped':''}">
-          <div class="flip-face flip-front">
-            <div class="card-h">${IC.info}<h2>A lógica em seis princípios</h2><button class="btn sm ghost flip-btn" onclick="App.intimGirar()">${IC.flip}Girar</button></div>
-            <div class="card-b"><div class="princ">${INTIM_PRINCIPIOS.map((p,i)=>`
-              <div class="princ-row"><div class="princ-n">${i+1}</div><div><div class="princ-t">${p[0]}</div><div class="princ-d">${p[1]}</div></div></div>`).join("")}</div></div>
-          </div>
-          <div class="flip-face flip-back">
-            <div class="card-h">${IC.shield}<h2>A pegadinha do tipo de pessoa</h2><button class="btn sm ghost flip-btn" onclick="App.intimGirar()">${IC.flip}Girar</button></div>
-            <div class="card-b">
-              <p class="small muted" style="margin-bottom:12px">O erro mais comum é confundir a natureza. <b>Autarquias</b> são direito <b>público</b>; <b>empresas públicas e economia mista</b> são direito <b>privado</b>.</p>
-              <div class="peg"><div class="peg-h pub">Direito público → Domicílio (obrigatório)</div>
-                <p>União, Estados, Municípios, DF; INSS, Banco Central, IBAMA, INCRA, DNIT; ANAC, ANATEL, ANVISA, ANS, ANEEL; CRM, CREA, CRC, COREN; universidades e fundações públicas.</p></div>
-              <div class="peg"><div class="peg-h priv">Direito privado → depende da habilitação e da representação</div>
-                <p>CEF, Correios, Infraero, BNDES, Serpro (empresas públicas); Banco do Brasil, Petrobras, Eletrobras (economia mista); bancos privados, empresas em geral, associações e sindicatos.</p></div>
-              <div class="intim-note">${IC.info}<span><b>CEF e Banco do Brasil:</b> embora de direito privado, são habilitadas e têm procuradoria — caem em “procuradoria + habilitada” e vão pelo <b>Domicílio</b>.</span></div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <p class="small muted" style="margin-top:14px">Referência reorganizada das regras do CNJ (DAF1/DAF2/AGES — TRF3). Em caso de dúvida, prevalece o texto oficial e a normativa do CNJ.</p>`;
-}
-function intimGirar(){
-  intimFlip=!intimFlip;
-  const inner=document.querySelector(".flip-inner");
-  if(inner)inner.classList.toggle("flipped",intimFlip);
-}
-function intimDuvToggle(){
-  intimDuvOpen=!intimDuvOpen;
-  const b=document.querySelector(".duv-body"),t=document.querySelector(".duv-toggle");
-  if(b)b.classList.toggle("open",intimDuvOpen);
-  if(t)t.classList.toggle("open",intimDuvOpen);
-}
-function addDuvida(){
-  const inp=el("duvidaInput");const t=(inp.value||"").trim();
-  if(!t){toast("Escreva a dúvida antes de adicionar.","err");return;}
-  duvidas.push({id:uid(),texto:t,data:ymd(today()),resolvida:false});
-  saveKey(DUVIDAS_KEY,duvidas);renderIntimacoes();
-}
-function toggleDuvida(id){
-  const d=duvidas.find(x=>x.id===id);if(d)d.resolvida=!d.resolvida;
-  saveKey(DUVIDAS_KEY,duvidas);renderIntimacoes();
-}
-function delDuvida(id){
-  duvidas=duvidas.filter(x=>x.id!==id);saveKey(DUVIDAS_KEY,duvidas);renderIntimacoes();
-}
-
-/* =================================================================
-   CONTATOS
-   ================================================================= */
-const CONT_CAT={trf3:"TRF3",jfms:"JF-MS",tjms:"TJMS",comarca:"Comarca / Foro",outro:"Outro"};
-const ORG_ORDEM=[["","Todos"],["trf3","TRF3"],["jfms","JF-MS"],["tjms","TJMS"],["comarca","Comarcas"],["outro","Outros"]];
-function seedContatos(){
-  const fed="(67) 3320-1100";
-  const C=(nome,categoria,telefone,email,orgao,obs)=>({id:uid(),nome,categoria,telefone:telefone||"",email:email||"",orgao:orgao||"",obs:obs||"",favorito:false,meios:[...(telefone?[{tipo:"Telefone",valor:telefone,obs:""}]:[]),...(email?[{tipo:"E-mail",valor:email,obs:""}]:[])]});
-  const out=[
-    C("TRF3 — Sede (São Paulo)","trf3","","tefo@trf3.jus.br","Tribunal Regional Federal da 3ª Região","Av. Paulista, 1842 — Bela Vista, São Paulo/SP, 01310-936. Telefones por setor em trf3.jus.br/telefones (Setor de Telefonia — TEFO). Atendimento 13h–19h."),
-    C("JF-MS — Subseção de Campo Grande","jfms",fed,"","1ª a 6ª Varas Federais, JEF e Turmas Recursais","R. Delegado Carlos Roberto Bastos de Oliveira, 128 — Parque dos Poderes, Campo Grande/MS, 79037-102. Fóruns federais 12h–18h."),
-    C("JF-MS — Subseção de Dourados","jfms",fed,"","1ª e 2ª Varas Federais e JEF","Rua Ponta Porã, 1875 — Jd. América, Dourados/MS, 79824-130."),
-    C("JF-MS — 3ª Subseção de Três Lagoas","jfms",fed,"tlagoa-se01-vara01@trf3.jus.br","Justiça Federal de MS","Av. Antonio Trajano, 852 (Praça Getúlio Vargas), Três Lagoas/MS, 79601-002. Juiz Titular: Roberto Pollini; Substituta: Thais Fiel Neumann; Dir. de Secretaria: Luiz Francisco de Lima Milano."),
-    C("JF-MS — 4ª Subseção de Corumbá","jfms",fed,"corumb-se01-vara01@trf3.jus.br","Justiça Federal de MS","Rua Campo Grande, 703 — Bairro Aeroporto, Corumbá/MS, 79320-080. Juíza Titular: Juliana Blanco Wojtowicz; Substituta: Sabrina Monique Gresller Borges; Dir. de Secretaria: Rene Mazulli Silva."),
-    C("JF-MS — Subseção de Ponta Porã","jfms",fed,"","1ª e 2ª Varas Federais","Fórum Federal de Ponta Porã/MS. Endereço por vara em jfms.jus.br/telefones/ponta-pora."),
-    C("JF-MS — Subseção de Naviraí","jfms",fed,"","1ª Vara Federal","Fórum Federal de Naviraí/MS. Endereço em jfms.jus.br/telefones/navirai."),
-    C("JF-MS — Subseção de Coxim","jfms",fed,"NUJU-SENJ@trf3.jus.br","Justiça Federal de MS","Rua Viriato Bandeira, 711, 2º piso — Centro, Coxim/MS, 79400-000. Juiz Titular: Pablo Rodrigo Diaz Nunes; Dir. de Secretaria: Aline Patrícia Graciotto Manso."),
-    C("TJMS — Sede (Parque dos Poderes)","tjms","(67) 3314-1300","","Tribunal de Justiça de Mato Grosso do Sul","Av. Mato Grosso, Bloco 13 — Parque dos Poderes, Campo Grande/MS, 79031-902."),
-    C("TJMS — Departamento de Precatório","tjms","(67) 3314-1727","processamentodeprecatorios@tjms.jus.br","Tribunal de Justiça de MS","Coordenadoria de Processamento de Precatórios (67) 3314-1727 / 1762; Cálculos de Liquidação (67) 3314-1932. Av. Mato Grosso, Bloco 13."),
-    C("TJMS — Ouvidoria Judiciária","tjms","(67) 3314-1756","ouvidoria@tjms.jus.br","Tribunal de Justiça de MS","Ouvidoria-Geral do TJMS."),
-    C("TJMS — Corregedoria-Geral de Justiça","tjms","(67) 3314-1611","cgjexpediente@tjms.jus.br","Secretaria da Corregedoria-Geral de Justiça","Secretaria da CGJ (67) 3314-1611; Coordenadoria de Expediente cgjexpediente@tjms.jus.br."),
-    C("TJMS — NUPEMEC / Justiça Restaurativa","tjms","(67) 3317-3998","nupemec@tjms.jus.br","Núcleo Permanente de Métodos Consensuais","Rua Raul Pires Barbosa, 1503 — Chácara Cachoeira, 79040-150, Campo Grande/MS."),
-    C("TJMS — Agendamento de sala passiva","tjms","(67) 3317-3322","","Tribunal de Justiça de MS","Agendamento de sala passiva (videoconferência) e dúvidas correlatas."),
-    C("Fórum de Campo Grande — Cumprimento de Cartas Precatórias Cíveis","comarca","(67) 3317-3406","cgr-vfci@tjms.jus.br","Vara de Falências, Recuperações, Insolvências e Cumprimento de Cartas Precatórias Cíveis em Geral","R. da Paz, 14 — Jardim dos Estados, Campo Grande/MS. Cumpre cartas precatórias cíveis na capital."),
-    C("Fórum de Campo Grande — Distribuidor (Cartas Precatórias e Feitos Criminais)","comarca","(67) 3317-3630","cgr-cdistribuidor@tjms.jus.br","Cartório Distribuidor","R. da Paz, 14 — Jardim dos Estados. Distribuição de cartas precatórias e feitos criminais."),
-    C("Fórum de Campo Grande — Direção / Administração","comarca","(67) 3317-3300","","Fórum de Campo Grande","R. da Paz, 14 — Jardim dos Estados, Campo Grande/MS. Dep. de Administração (67) 3317-3322.")
-  ];
-  const COM=[
-    ["Água Clara","(67) 3239-1241","acl-1v@tjms.jus.br","Rua Francisco Vieira, 200 — Jd. Primavera, 79680-000."],
-    ["Deodápolis","(67) 3448-1110","deo-secforo@tjms.jus.br","Av. Francisco Alves da Silva, 103, 79790-000."],
-    ["Sonora","(67) 3254-1126","son-1v@tjms.jus.br","Rua Três de Junho, 90 — Centro, 79415-000."],
-    ["Anaurilândia","(67) 3445-1121","anu-1v@tjms.jus.br","Rua Floriano Peixoto, 1001 — Centro, 79770-000."],
-    ["Angélica","(67) 3446-1523","ang-secforo@tjms.jus.br","Av. Basílio de Lima, 258 — Bairro Imperial, 79785-000."],
-    ["Bandeirantes","(67) 3261-1144","","Rua Pedro Celestino, 1460 — Centro, 79430-000. Cartório (67) 3261-1187."],
-    ["Batayporã","(67) 3443-1270","","Av. Brasil, 633 — Centro, 79760-000."],
-    ["Brasilândia","(67) 3546-1205","bra-1v@tjms.jus.br","Av. Manoel Vicente, 1390 — Jd. Camargo, 79670-000."],
-    ["Coronel Sapucaia","(67) 3483-3210","csa-direcao@tjms.jus.br","Rua Amâncio José da Silva, 1.866, 79995-000."],
-    ["Dois Irmãos do Buriti","(67) 3243-1080","dib-1v@tjms.jus.br","Av. Reginaldo Lemes Silva, 763 — Centro, 79215-000."],
-    ["Eldorado","(67) 3473-1121","eld-1v@tjms.jus.br","R. Assis Chateaubriand, 1555, 79970-000."],
-    ["Glória de Dourados","(67) 3466-1473","glo-1v@tjms.jus.br","Av. Antonio Borges de Carvalho — Parque Cead, 79730-738."],
-    ["Inocência","(67) 3574-1280","ino-1v@tjms.jus.br","Av. Albertina Garcia Dias, 377 — Jardim Bom Jesus, 79583-026."],
-    ["Itaquiraí","(67) 3476-1947","itq-1v@tjms.jus.br","Av. Mato Grosso, 350, 79965-000."],
-    ["Nioaque","(67) 3236-1200","","Rua Cel. Juvêncio, s/n, 79220-000."],
-    ["Pedro Gomes","(67) 3230-1254","pdg-1v@tjms.jus.br","Av. Diva Araújo Azambuja, 395, 79410-000."],
-    ["Porto Murtinho","(67) 3287-1355","ptm-1v@tjms.jus.br","Rua Treze de Maio, 444, 79280-000."],
-    ["Rio Negro","(67) 3278-1270","rne-1v@tjms.jus.br","Av. 9 de Maio, 305 — Centro, 79470-000."],
-    ["Sete Quedas","(67) 3479-1213","stq-secforo@tjms.jus.br","Rua Rui Barbosa, 780 — Centro, 79935-000."],
-    ["Amambai","(67) 3481-1763","amb-1v@tjms.jus.br","Av. Pedro Manvailler, 4557 — Centro, 79990-000."],
-    ["Aquidauana","(67) 3240-2250","aqu-1vciv@tjms.jus.br","Rua Nilza Ferraz Ribeiro, 391 — Vila Cidade Nova, 79200-000."],
-    ["Bataguassu","(67) 3541-1285","btg-secforo@tjms.jus.br","Rua Rio Brilhante, 506, 79780-000."],
-    ["Coxim","(67) 3683-2132","cox-secforo@tjms.jus.br","Av. General Mendes de Morais, 70 — Jardim Aeroporto, 79400-000. Comarca estadual; ramais por setor."],
-    ["Naviraí","(67) 3409-6232","nav-cdistribuidor@tjms.jus.br","Rua Higino Gomes Duarte, 155 — Centro, 79950-000. Comarca estadual."],
-    ["Nova Andradina","(67) 3441-1585","nan-1vciv@tjms.jus.br","Av. Alcides Menezes de Faria, 1.137 — Centro, 79750-000."],
-    ["Paranaíba","(67) 3558-1801","prb-secforo@tjms.jus.br","Av. Juca Pinhé, 270 — Santa Mônica, 79500-000."],
-    ["Ponta Porã","(67) 3437-0760","ppr-secforo@tjms.jus.br","Rua Baltazar Saldanha, 1.817 — Ponta Porã/MS. Comarca estadual."],
-    ["Rio Brilhante","(67) 3452-7332","rbr-2vciv@tjms.jus.br","Rua Rio Brilhante, 1060 — Vila Maria, 79130-000."],
-    ["Sidrolândia","(67) 3272-8700","sid-secforo@tjms.jus.br","Rua Targino de Souza Barbosa, 855 — Centro, 79170-000."],
-    ["Anastácio","(67) 3245-1415","ans-1v@tjms.jus.br","Rua Juscelino Kubitschek, 1445 — Jd. América, 79210-000."],
-    ["Aparecida do Taboado","(67) 3565-8900","apt-direcao@tjms.jus.br","Av. Orlando Mascarenhas Pereira, 2098 — Jd. Brandini, 79570-000."],
-    ["Bela Vista","(67) 3439-1353","blv-1v@tjms.jus.br","Rua Barão do Ladário, 1595 — Centro, 79260-000."],
-    ["Bonito","(67) 3255-1271","bon-1v@tjms.jus.br","Rua Clóvis Cintra, 1035 — Vila Donária, 79290-000."],
-    ["Caarapó","(67) 3453-1369","cpo-1v@tjms.jus.br","Rua Dom Pedro II, 1700 — Vila Planalto, 79940-000."],
-    ["Camapuã","(67) 3286-1204","cam-1v@tjms.jus.br","Rua Ferreira da Cunha, 415 — Vila Diamantina, 79420-000."],
-    ["Cassilândia","(67) 3596-1917","css-secforo@tjms.jus.br","Rua Juvenal Rezende e Silva, 375 — Vila Izanópolis, 79542-056."],
-    ["Chapadão do Sul","(67) 3562-6230","chs-secforo@tjms.jus.br","Av. Mato Grosso do Sul, 311, 79560-000."],
-    ["Costa Rica","(67) 3247-1013","csr-direcao@tjms.jus.br","Rua José Pereira da Silva, 405 — Jd. Santos Dumont, 79550-000."],
-    ["Fátima do Sul","(67) 3467-1095","fts-1v@tjms.jus.br","Rua Antônio Barbosa, 800 — Jd. Universitário, 79700-000."],
-    ["Iguatemi","(67) 3471-1112","igu-1v@tjms.jus.br","Rua Lenira Nogueira Lopes, 548, 79960-000."],
-    ["Itaporã","(67) 3451-1560","ita-1v@tjms.jus.br","Av. São José, 02, 79890-000."],
-    ["Ivinhema","(67) 3442-1405","ivn-secforo@tjms.jus.br","Av. Reinaldo Massi, 1854 — Centro, 79740-000."],
-    ["Jardim","(67) 3251-3780","jdm-1v@tjms.jus.br","Rua Cel. Stuck, 51, 79240-000."],
-    ["Maracaju","(67) 3454-8220","mju-secforo@tjms.jus.br","Rua Luiz Porto Soares, 390 — Centro, 79150-000."],
-    ["Miranda","(67) 3242-1346","","Rua General Amaro Bitencourt, 875, 79380-000."],
-    ["Mundo Novo","(67) 3474-1033","mnv-secforo@tjms.jus.br","Av. Campo Grande, 375 — Bairro Berneck, 79980-000."],
-    ["Nova Alvorada do Sul","(67) 3456-1170","nas-1v@tjms.jus.br","Rua Marcelino Risden, 1.040 — Jd. Eldorado, 79140-000."],
-    ["Ribas do Rio Pardo","(67) 3238-1242","rrp-1v@tjms.jus.br","Rua Waldemar Francisco da Silva, 1.017 — Senhora da Conceição, 79180-000."],
-    ["Rio Verde de Mato Grosso","(67) 3292-1295","rve-1v@tjms.jus.br","Av. Eurico Sebastião Ferreira, 640, 79480-000."],
-    ["São Gabriel do Oeste","(67) 3295-1110","sgo-secforo@tjms.jus.br","Av. São Francisco, 550 — Centro, 79490-000."],
-    ["Terenos","(67) 3246-7445","trn-1v@tjms.jus.br","R. Pedro Celestino — Centro, 79190-000."],
-    ["Dourados","(67) 3902-1720","dou-varadafazendapublica@tjms.jus.br","Av. Presidente Vargas, 210 — Jd. América, 79804-030. Comarca estadual. Cartas Precatórias Cíveis: Vara da Fazenda Pública (67) 3902-1848; Precatórias Criminais: Vara de Violência Doméstica (67) 3902-2998."],
-    ["Corumbá","(67) 3234-4503","cor-secforo@tjms.jus.br","Rua 21 de Setembro, 1.633, 79320-110. Comarca estadual."],
-    ["Três Lagoas","(67) 3929-1701","trl-secretaria@tjms.jus.br","Rua Zuleide Peres Tabox, 1.109 — Vila Nova, 79601-100. Comarca estadual."]
-  ];
-  COM.forEach(([n,t,e,a])=>out.push(C("TJMS — Comarca de "+n,"comarca",t,e,"Foro estadual de "+n,a)));
-  return out;
-}
-function importarContatosOficiais(){
-  const seed=seedContatos();
-  const idx=new Map(contatos.map(c=>[(c.nome||"").trim(),c]));
-  let add=0,upd=0;
-  seed.forEach(s=>{
-    const e=idx.get(s.nome);
-    if(e){const a={categoria:s.categoria,telefone:s.telefone,email:s.email,orgao:s.orgao,obs:s.obs};
-      if(JSON.stringify({categoria:e.categoria,telefone:e.telefone,email:e.email,orgao:e.orgao,obs:e.obs})!==JSON.stringify(a)){Object.assign(e,a);upd++;}}
-    else{contatos.push(s);add++;}
-  });
-  if(!add&&!upd){toast("Os contatos oficiais já estão atualizados.","info");return;}
-  saveKey(CONTATOS_KEY,contatos);renderContatos();
-  toast(`${add} novo(s) e ${upd} atualizado(s).`,"ok");
-}
-function filtrarOrgao(k){filtroOrgao=k;renderContatos();}
-function renderContatos(){
-  const cont=cnt=>contatos.filter(c=>!cnt||c.categoria===cnt).length;
-  const chips=ORG_ORDEM.map(([k,lab])=>`<button class="orgchip ${filtroOrgao===k?'on':''}" onclick="App.filtrarOrgao('${k}')">${lab}<span class="orgchip-n">${cont(k)}</span></button>`).join("");
-  el("content").innerHTML=`
-    <div class="banner info">${IC.info}<div>Juízos, comarcas e secretarias para o cumprimento das cartas. Inclui <b>TRF3</b>, as 7 subseções da <b>Justiça Federal de MS</b>, departamentos do <b>TJMS</b> e as <b>comarcas estaduais</b>, conferidos nas fontes oficiais. Listas completas em <a href="https://www.jfms.jus.br/telefones" target="_blank" rel="noopener">jfms.jus.br/telefones</a> e no <a href="https://www5.tjms.jus.br/servicos/pabx/" target="_blank" rel="noopener">PABX do TJMS</a>.</div></div>
-    <div class="toolbar">
-      <div class="search">${IC.search}<input id="contQ" placeholder="Buscar por nome, órgão, telefone, e-mail…" value="${esc(filtroContato)}"></div>
-      <button class="btn ghost" onclick="App.importarContatosOficiais()" title="Acrescentar os contatos oficiais (TRF3, JF-MS e TJMS) sem duplicar">${IC.contacts}Importar oficiais</button>
-      <button class="btn primary" onclick="App.openContato()">${IC.plus}Novo contato</button>
-    </div>
-    <div class="orgfilter">${chips}</div>
-    <div id="contMount"></div>`;
-  el("contQ").addEventListener("input",e=>{filtroContato=e.target.value;renderContatosList();});
-  renderContatosList();
-}
-function renderContatosList(){
-  const q=filtroContato.trim().toLowerCase();
-  const list=contatos.filter(c=>(!filtroOrgao||c.categoria===filtroOrgao) &&
-    (!q||[c.nome,c.orgao,c.telefone,c.email,c.obs,CONT_CAT[c.categoria],...(c.meios||[]).map(m=>[m.tipo,m.valor,m.obs].join(" "))].join(" ").toLowerCase().includes(q)))
-    .sort((a,b)=>(b.favorito===true)-(a.favorito===true)||String(a.nome||"").localeCompare(String(b.nome||"")));
-  const mount=el("contMount");
-  if(!contatos.length){mount.innerHTML=`<div class="tbl-wrap"><div class="empty"><div class="em-mark">${IC.contacts}</div><h3>Agenda vazia</h3><p>Adicione o primeiro contato ou clique em “Importar oficiais”.</p><div class="actions"><button class="btn primary" onclick="App.openContato()">${IC.plus}Novo contato</button></div></div></div>`;return;}
-  if(!list.length){mount.innerHTML=`<div class="tbl-wrap"><div class="empty"><div class="em-mark">${IC.search}</div><h3>Nada encontrado</h3><p>Nenhum contato corresponde ao filtro.</p></div></div>`;return;}
-  mount.innerHTML=`<div class="cont-grid">${list.map(contatoCard).join("")}</div>`;
-}
-function contatoCard(c){
-  const meios=Array.isArray(c.meios)&&c.meios.length?c.meios:[...(c.telefone?[{tipo:"Telefone",valor:c.telefone,obs:""}]:[]),...(c.email?[{tipo:"E-mail",valor:c.email,obs:""}]:[])];
-  const linhas=meios.slice(0,4).map(m=>{
-    const val=esc(m.valor||"");
-    const tipo=esc(m.tipo||"Meio");
-    if((m.tipo||"").toLowerCase().includes("mail")) return `<a href="mailto:${val}" class="cont-line">${IC.mail}${tipo}: ${val}</a>`;
-    if((m.tipo||"").toLowerCase().includes("telefone")) return `<a href="tel:${String(m.valor||"").replace(/[^0-9+]/g,"")}" class="cont-line">${IC.phone}${tipo}: ${val}</a>`;
-    return `<div class="cont-line">${IC.send}${tipo}: ${val}</div>`;
-  }).join("");
-  return `<div class="cont-card ${c.favorito?'fav':''}">
-    <div class="cont-top">
-      <div><div class="cont-nome">${esc(c.nome)}</div>${c.orgao?`<div class="cont-org">${esc(c.orgao)}</div>`:""}</div>
-      <span class="tag-cat ${c.categoria||'outro'}">${CONT_CAT[c.categoria]||"Outro"}</span>
-    </div>
-    ${linhas}
-    ${c.obs?`<div class="cont-obs">${esc(c.obs)}</div>`:""}
-    <div class="cont-acts">
-      <button class="iconbtn favbtn ${c.favorito?'on':''}" title="Favoritar" onclick="App.toggleFavoritoContato('${c.id}')">★</button>
-      <button class="iconbtn" title="Editar" onclick="App.openContato('${c.id}')">${IC.edit}</button>
-      <button class="iconbtn danger" title="Excluir" onclick="App.excluirContato('${c.id}')">${IC.trash}</button>
-    </div>
-  </div>`;
-}
-function meioContatoRow(m={},i=0){
-  return `<tr data-meio-row>
-    <td><select data-meio-tipo><option ${m.tipo==="Telefone"?"selected":""}>Telefone</option><option ${m.tipo==="E-mail"?"selected":""}>E-mail</option><option ${m.tipo==="Malote Digital"?"selected":""}>Malote Digital</option><option ${m.tipo==="Balcão Virtual"?"selected":""}>Balcão Virtual</option><option ${m.tipo==="Endereço"?"selected":""}>Endereço</option><option ${m.tipo==="Outro"?"selected":""}>Outro</option></select></td>
-    <td><input data-meio-valor value="${esc(m.valor||"")}" placeholder="valor / endereço / código"></td>
-    <td><input data-meio-obs value="${esc(m.obs||"")}" placeholder="observação"></td>
-    <td><button class="iconbtn danger" onclick="this.closest('tr').remove()">${IC.trash}</button></td>
-  </tr>`;
-}
-function addMeioContato(){el("ct_meios_body").insertAdjacentHTML("beforeend",meioContatoRow({tipo:"E-mail",valor:"",obs:""}));}
-function getMeiosContato(){return $$('[data-meio-row]').map(r=>({tipo:r.querySelector('[data-meio-tipo]').value,valor:r.querySelector('[data-meio-valor]').value.trim(),obs:r.querySelector('[data-meio-obs]').value.trim()})).filter(m=>m.valor||m.obs);}
-function toggleFavoritoContato(id){const c=contatos.find(x=>x.id===id);if(!c)return;c.favorito=!c.favorito;saveKey(CONTATOS_KEY,contatos);registrarAlteracao("contato:favorito",{id,nome:c.nome,favorito:c.favorito});renderContatosList();}
-function openContato(id){
-  const c=id?contatos.find(x=>x.id===id):null;
-  const v=(f,d="")=>c?(c[f]??d):d;
-  const html=`<div class="modal">
-    <div class="modal-h">${IC.contacts}<h2>${c?"Editar contato":"Novo contato"}</h2><button class="iconbtn" onclick="App.closeModal()">${IC.x}</button></div>
-    <div class="modal-b">
-      <input type="hidden" id="ct_id" value="${c?c.id:""}">
-      <div class="field"><label>Nome / unidade <span class="req">*</span></label><input id="ct_nome" value="${esc(v("nome"))}" placeholder="ex.: 2ª Vara Federal de Dourados/MS"></div>
-      <div class="row c2">
-        <div class="field"><label>Órgão</label><select id="ct_cat">${opts(CONT_CAT,v("categoria","comarca"))}</select></div>
-        <div class="field"><label>Instituição / detalhe</label><input id="ct_org" value="${esc(v("orgao"))}" placeholder="Tribunal / Justiça Federal / Foro…"></div>
-      </div>
-      <div class="row c2">
-        <div class="field"><label>Telefone</label><input id="ct_tel" value="${esc(v("telefone"))}" placeholder="(67) 0000-0000"></div>
-        <div class="field"><label>E-mail</label><input id="ct_mail" value="${esc(v("email"))}" placeholder="unidade@tribunal.jus.br"></div>
-      </div>
-      <fieldset class="fieldset"><legend>Meios de Comunicação Registrados</legend>
-        <div class="small muted">Registre telefone, e-mail, malote, balcão virtual ou outro meio. Use o botão para adicionar linhas.</div>
-        <table class="meios-table"><thead><tr><th>Tipo</th><th>Valor</th><th>Obs.</th><th></th></tr></thead><tbody id="ct_meios_body">
-        ${(Array.isArray(v("meios",[]))&&v("meios",[]).length?v("meios",[]):[...(v("telefone")?[{tipo:"Telefone",valor:v("telefone"),obs:""}]:[]),...(v("email")?[{tipo:"E-mail",valor:v("email"),obs:""}]:[])]).map((m,i)=>meioContatoRow(m,i)).join("")}
-        </tbody></table>
-        <button class="btn sm" style="margin-top:8px" onclick="App.addMeioContato()">${IC.plus}Adicionar linha</button>
-      </fieldset>
-      <div class="field"><label>Observações</label><textarea id="ct_obs" style="min-height:70px">${esc(v("obs"))}</textarea></div>
-    </div>
-    <div class="modal-f">
-      ${c?`<button class="btn danger" onclick="App.excluirContato('${c.id}',true)">${IC.trash}Excluir</button>`:""}
-      <span class="spacer"></span>
-      <button class="btn primary" onclick="App.salvarContato()">${IC.check}Salvar</button>
-    </div></div>`;
-  openModal(html);
-}
-function salvarContato(){
-  const nome=el("ct_nome").value.trim();
-  if(!nome){el("ct_nome").closest(".field").classList.add("err");toast("Informe o nome da unidade.","err");return;}
-  const id=el("ct_id").value;
-  const meios=getMeiosContato();
-  const data={nome,categoria:el("ct_cat").value,orgao:el("ct_org").value.trim(),telefone:el("ct_tel").value.trim(),email:el("ct_mail").value.trim(),obs:el("ct_obs").value.trim(),meios};
-  if(id){const c=contatos.find(x=>x.id===id);if(c)Object.assign(c,data);}
-  else contatos.unshift({id:uid(),...data});
-  saveKey(CONTATOS_KEY,contatos);closeModal();renderContatos();toast(id?"Contato atualizado.":"Contato adicionado.","ok");
-}
-function excluirContato(id,fromModal){
-  const c=contatos.find(x=>x.id===id);if(!c)return;
-  if(!confirm(`Excluir o contato “${c.nome}”?`))return;
-  contatos=contatos.filter(x=>x.id!==id);saveKey(CONTATOS_KEY,contatos);
-  if(fromModal)closeModal();
-  renderContatos();toast("Contato excluído.","ok");
-}
-
-/* =================================================================
-   FORMULÁRIO (Nova / Editar)
-   ================================================================= */
-function openForm(id){
-  editingId=id||null;
-  const c=id?cartas.find(x=>x.id===id):null;
-  const v=(f,d="")=>c?(c[f]??d):d;
-  const isNew=!c;
-  const modo=c?c.prazoModo:"data";
-  const html=`
-  <div class="modal wide">
-    <div class="modal-h">${IC.cartas}<h2>${isNew?"Nova carta":"Editar carta"}</h2>
-      <button class="iconbtn" onclick="App.closeModal()">${IC.x}</button></div>
-    <div class="modal-b">
-      ${isNew?`<div class="dropz" id="dropz" onclick="document.getElementById('pdfInput').click()">
-        ${IC.upload}<div class="t">Importar de PDF</div>
-        <div class="s">Arraste a decisão/carta aqui ou clique para selecionar — preenche tipo, processo, juízos, finalidade e prazo</div>
-        <input type="file" id="pdfInput" accept="application/pdf" class="hidden">
-        <div class="status" id="dropStatus"></div></div>`:""}
-
-      <div id="formBanners"></div>
-
-      <div class="row c3">
-        <div class="field"><label>Tipo <span class="req">*</span></label>
-          <select id="f_tipo">${opts(TIPOS,v("tipo","precatoria"))}</select></div>
-        <div class="field"><label>Status <span class="req">*</span></label>
-          <select id="f_status">${opts(STATUS,v("status","aguardando"))}</select></div>
-        <div class="field"><label>Divisão responsável</label>
-          <select id="f_divisao">${opts(DIVISAO,v("divisao","DKMS"))}</select></div>
-      </div>
-
-      <div class="row c2">
-        <div class="field"><label>Processo nosso (CNJ) <span class="req">*</span></label>
-          <input class="mono" id="f_processo" placeholder="0000000-00.0000.0.00.0000" value="${esc(v("processo"))}"></div>
-        <div class="field"><label>Número da carta</label>
-          <input id="f_numeroCarta" placeholder="ex.: CP 112/2025" value="${esc(v("numeroCarta"))}"></div>
-      </div>
-
-      <div class="row c2">
-        <div class="field"><label>Proc. da carta protocolizada <span class="hint-inline">no juízo cumpridor</span></label>
-          <input class="mono" id="f_processoProtocolo" placeholder="processo gerado no destino" value="${esc(v("processoProtocolo"))}"></div>
-        <div class="field"><label>Relator</label>
-          <select id="f_relator">${opts({"":"—",...Object.fromEntries(RELATORES.map(r=>[r,r]))},v("relator"))}</select></div>
-      </div>
-
-      <div class="row c2">
-        <div class="field"><label>Responsável</label>
-          <input id="f_responsavel" placeholder="servidor ou gabinete" value="${esc(v("responsavel"))}"></div>
-        <div class="field"><label>Juízo de origem (deprecante) <span class="req">*</span></label>
-          <input id="f_origem" placeholder="ex.: Turma Regional de MS — TRF3" value="${esc(v("origem"))}"></div>
-      </div>
-
-      <div class="field"><label>Juízo de destino (deprecado)</label>
-        <input id="f_destino" placeholder="ex.: 1ª Vara Federal de Campo Grande/MS" value="${esc(v("destino"))}"></div>
-
-      <div class="row c2">
-        <div class="field"><label>E-mail da subseção / juízo deprecado</label>
-          <input id="f_emailDestino" type="email" placeholder="distribuicao@trf3.jus.br" value="${esc(v("emailDestino"))}"></div>
-        <div class="field"><label>Finalidade</label>
-          <input id="f_finalidade" placeholder="ex.: oitiva de testemunha, intimação" value="${esc(v("finalidade"))}"></div>
-      </div>
-
-      <fieldset class="fieldset"><legend>Natureza da parte & via de protocolo</legend>
-        <div class="row c2">
-          <div class="field" style="margin:0"><label>Natureza da parte requerida</label>
-            <select id="f_natureza" onchange="App.onNatureza()">${opts(NATUREZA,v("naturezaParte","privada"))}</select>
-            <div class="help" id="natHelp"></div></div>
-          <div class="field" style="margin:0"><label>Via de protocolo</label>
-            <select id="f_via">${opts(VIA,v("viaProtocolo","malote"))}</select>
-            <div class="help">PJe direto dispensa carta formal na 3ª Região; rogatória vai pela Autoridade Central.</div></div>
-        </div>
-      </fieldset>
-
-      <div class="row c2">
-        <div class="field"><label>Data de recebimento</label>
-          <input type="date" id="f_recebimento" value="${esc(v("recebimento"))}" onchange="App.onPrazoCalc()"></div>
-        <div class="field"><label>Prazo de cumprimento <span class="req">*</span></label>
-          <div class="seg" style="margin-bottom:8px">
-            <button type="button" class="${modo==='data'?'on':''}" id="segData" onclick="App.setModo('data')">Data final</button>
-            <button type="button" class="${modo==='dias'?'on':''}" id="segDias" onclick="App.setModo('dias')">Em dias</button>
-          </div>
-          <div id="prazoData" class="${modo==='dias'?'hidden':''}">
-            <input type="date" id="f_prazo" value="${esc(v("prazo"))}"></div>
-          <div id="prazoDias" class="${modo==='data'?'hidden':''}">
-            <div style="display:flex;gap:8px">
-              <input type="number" id="f_prazoDias" min="1" placeholder="nº de dias" value="${esc(v("prazoDias"))}" oninput="App.onPrazoCalc()" style="flex:1">
-              <select id="f_prazoDiasTipo" onchange="App.onPrazoCalc()" style="flex:1">${opts({uteis:"dias úteis",corridos:"dias corridos"},v("prazoDiasTipo","uteis"))}</select>
-            </div>
-            <div class="help calc" id="prazoCalcOut"></div>
-          </div>
-        </div>
-      </div>
-
-      <fieldset class="fieldset"><legend>Obstáculo ao cumprimento (art. 221, CPC)</legend>
-        <label class="switch" style="margin-bottom:10px">
-          <input type="checkbox" id="f_obstAtivo" ${(c&&c.obstaculo&&c.obstaculo.ativo)?'checked':''} onchange="App.toggleObstField()">
-          <span class="track"></span><span>Suspender contagem por obstáculo</span></label>
-        <div id="obstWrap" class="${(c&&c.obstaculo&&c.obstaculo.ativo)?'':'hidden'}">
-          <div class="field" style="margin:0"><label>Motivo do obstáculo</label>
-            <input id="f_obstMotivo" placeholder="ex.: indisponibilidade do PJe, ausência de força disponível…" value="${esc(c&&c.obstaculo?c.obstaculo.motivo:"")}"></div>
-          <div class="help">Enquanto ativo, o prazo é suspenso e a carta sai das listas de vencidas e a vencer; ao reativar, o saldo de dias úteis volta a correr.</div>
-        </div>
-      </fieldset>
-
-      <fieldset class="fieldset"><legend>Comunicação urgente (telefone / telegrama)</legend>
-        <label class="switch" style="margin-bottom:10px">
-          <input type="checkbox" id="f_comFeita" ${(c&&c.comunicacao&&c.comunicacao.feita)?'checked':''} onchange="App.toggleComField()">
-          <span class="track"></span><span>Houve confirmação registrada</span></label>
-        <div id="comWrap" class="row c3 ${(c&&c.comunicacao&&c.comunicacao.feita)?'':'hidden'}" style="gap:10px">
-          <div class="field" style="margin:0"><label>Meio</label><input id="f_comMeio" placeholder="telefone / telegrama" value="${esc(c&&c.comunicacao?c.comunicacao.meio:"")}"></div>
-          <div class="field" style="margin:0"><label>Data</label><input type="date" id="f_comData" value="${esc(c&&c.comunicacao?c.comunicacao.data:"")}"></div>
-          <div class="field" style="margin:0"><label>Hora</label><input id="f_comHora" placeholder="14h30" value="${esc(c&&c.comunicacao?c.comunicacao.hora:"")}"></div>
-        </div>
-        <div class="field" style="margin:10px 0 0" id="comServWrap2"><label>Servidor que confirmou</label>
-          <input id="f_comServidor" placeholder="nome do servidor" value="${esc(c&&c.comunicacao?c.comunicacao.servidor:"")}"></div>
-      </fieldset>
-
-      <div class="field"><label>Observações</label>
-        <textarea id="f_observacoes" placeholder="anotações livres; a importação de PDF compila aqui relator, parte, endereço, ID da decisão e anexos">${esc(v("observacoes"))}</textarea></div>
-    </div>
-    <div class="modal-f">
-      ${!isNew?`<button class="btn danger" onclick="App.excluir('${id}',true)">${IC.trash}Excluir</button>`:""}
-      <span class="spacer"></span>
-      <button class="btn ghost" onclick="App.closeModal()">Cancelar</button>
-      <button class="btn primary" onclick="App.salvar()">${IC.check}Salvar carta</button>
-    </div>
-  </div>`;
-  openModal(html);
-  if(isNew) bindDropzone();
-  onNatureza();onPrazoCalc();checkSugestaoTipo();
-  ["f_origem","f_destino","f_tipo"].forEach(idf=>el(idf).addEventListener("input",checkSugestaoTipo));
-  el("f_tipo").addEventListener("change",checkSugestaoTipo);
-}
-
-let _modo="data";
-function setModo(m){_modo=m;
-  el("segData").classList.toggle("on",m==="data");
-  el("segDias").classList.toggle("on",m==="dias");
-  el("prazoData").classList.toggle("hidden",m==="dias");
-  el("prazoDias").classList.toggle("hidden",m==="data");
-  onPrazoCalc();
-}
-function onPrazoCalc(){
-  const m=el("segDias").classList.contains("on")?"dias":"data";
-  if(m!=="dias"){return;}
-  const nat=el("f_natureza").value;
-  const n0=Number(el("f_prazoDias").value)||0;
-  const n=dobra(nat)?n0*2:n0;
-  const tipo=el("f_prazoDiasTipo").value;
-  const base=parseD(el("f_recebimento").value)||today();
-  if(!n0){el("prazoCalcOut").textContent="";return;}
-  const fim=tipo==="uteis"?addDiasUteis(base,n):addDiasCorridos(base,n);
-  const dobraTxt=dobra(nat)?` (${n0} × 2 = ${n} dias, prazo em dobro)`:"";
-  el("prazoCalcOut").textContent=`Vence em ${fmtExt(fim)}${dobraTxt}`;
-}
-function onNatureza(){
-  const nat=el("f_natureza").value;
-  el("natHelp").innerHTML=dobra(nat)
-    ?`<span style="color:var(--ambar);font-weight:600">⚖ Prazo em dobro aplicado no modo “Em dias”.</span>`
-    :`Parte particular — prazo simples.`;
-  onPrazoCalc();
-}
-function toggleObstField(){el("obstWrap").classList.toggle("hidden",!el("f_obstAtivo").checked);}
-function toggleComField(){el("comWrap").classList.toggle("hidden",!el("f_comFeita").checked);}
-
-function checkSugestaoTipo(){
-  const origem=(el("f_origem").value||"").toLowerCase();
-  const destino=(el("f_destino").value||"").toLowerCase();
-  const tipo=el("f_tipo").value;
-  const isTRgMS=/turma regional|trgms|trf3|mato grosso do sul/.test(origem);
-  const isVF3=/vara federal|jef/.test(destino);
-  let banners="";
-  // REGRA 4
-  if(isTRgMS&&isVF3&&tipo!=="ordem"){
-    banners+=`<div class="banner gold">${IC.info}<div>Origem na <b>TRgMS</b> e destino em <b>Vara Federal da 3ª Região</b>: o caso costuma ser <b>Carta de Ordem</b>.
-      <button class="link-btn" onclick="document.getElementById('f_tipo').value='ordem';App.checkSugestaoTipo();App.onPrazoCalc();">Aplicar tipo “Carta de Ordem”</button></div></div>`;
-  }
-  // REGRA 3
-  if(tipo==="rogatoria"){
-    const okPres=/presidente/.test(origem);
-    banners+=`<div class="banner ${okPres?'info':'warn'}">${IC.scale}<div><b>Carta Rogatória:</b> somente o <b>Presidente do Tribunal</b> é competente para assiná-la. ${okPres?"Origem compatível.":"Ajuste o juízo de origem para “Presidente do Tribunal” antes de salvar."}</div></div>`;
-  }
-  el("formBanners").innerHTML=banners;
-}
-
-function coletaForm(){
-  const g=id=>el(id).value.trim();
-  const obstAtivo=el("f_obstAtivo").checked;
-  const comFeita=el("f_comFeita").checked;
-  return {
-    tipo:el("f_tipo").value,status:el("f_status").value,divisao:el("f_divisao").value,
-    processo:g("f_processo"),processoProtocolo:g("f_processoProtocolo"),numeroCarta:g("f_numeroCarta"),relator:el("f_relator").value,
-    responsavel:g("f_responsavel"),origem:g("f_origem"),destino:g("f_destino"),
-    emailDestino:g("f_emailDestino"),finalidade:g("f_finalidade"),
-    naturezaParte:el("f_natureza").value,viaProtocolo:el("f_via").value,
-    recebimento:el("f_recebimento").value,
-    prazoModo:el("segDias").classList.contains("on")?"dias":"data",
-    prazo:el("f_prazo").value,prazoDias:g("f_prazoDias"),prazoDiasTipo:el("f_prazoDiasTipo").value,
-    obstaculo:{ativo:obstAtivo,motivo:g("f_obstMotivo")},
-    comunicacao:{feita:comFeita,meio:g("f_comMeio"),data:el("f_comData").value,hora:g("f_comHora"),servidor:g("f_comServidor")},
-    observacoes:el("f_observacoes").value
-  };
-}
-
-function salvar(){
-  const d=coletaForm();
-  // validação base
-  let erro=[];
-  if(!d.processo) erro.push("f_processo");
-  if(!d.origem) erro.push("f_origem");
-  const temPrazo = d.prazoModo==="data" ? !!d.prazo : !!Number(d.prazoDias);
-  if(!temPrazo) erro.push(d.prazoModo==="data"?"f_prazo":"f_prazoDias");
-  $$(".field").forEach(f=>f.classList.remove("err"));
-  if(erro.length){
-    erro.forEach(idf=>el(idf).closest(".field")?.classList.add("err"));
-    toast("Preencha os campos obrigatórios destacados.","err");return;
-  }
-  // REGRA 3 — rogatória exige Presidente
-  if(d.tipo==="rogatoria" && !/presidente/i.test(d.origem)){
-    el("f_origem").closest(".field").classList.add("err");
-    toast("Carta Rogatória só pode ser assinada pelo Presidente do Tribunal — ajuste o juízo de origem.","err");return;
-  }
-
-  const prev=editingId?cartas.find(x=>x.id===editingId):null;
-  const c=prev?{...prev}:{id:uid(),criadoEm:new Date().toISOString(),checklist:{acordao:false,certidao:false,procuracoes:false,despacho:false,mandato:false},reiteracoes:0};
-  Object.assign(c,d);
-  c.atualizadoEm=new Date().toISOString();
-  c.checklist=c.checklist||{acordao:false,certidao:false,procuracoes:false,despacho:false,mandato:false};
-  c.reiteracoes=c.reiteracoes||0;
-
-  // obstáculo: gerencia suspensão do saldo (art. 221)
-  const eraAtivo=prev&&prev.obstaculo&&prev.obstaculo.ativo;
-  if(d.obstaculo.ativo && !eraAtivo){
-    // ativando agora: guarda saldo de dias úteis até o prazo
-    const saldo=c.prazo?uteisAteData(today(),parseD(c.prazo)):0;
-    c.obstaculo={ativo:true,motivo:d.obstaculo.motivo,desde:ymd(today()),restantes:saldo};
-  }else if(!d.obstaculo.ativo && eraAtivo){
-    // desativando: recoloca o saldo a partir de hoje e contabiliza o período parado em suspensão
-    const saldo=(prev.obstaculo&&prev.obstaculo.restantes)||0;
-    if(prev.obstaculo&&prev.obstaculo.desde){
-      const susDias=Math.max(0,Math.round((today()-parseD(prev.obstaculo.desde))/DOW));
-      c.diasSuspensos=Number(prev.diasSuspensos||0)+susDias;
-    }
-    c.prazo=ymd(addDiasUteis(today(),saldo));
-    c.prazoModo="data";
-    c.obstaculo={ativo:false,motivo:"",desde:"",restantes:0};
-  }else if(d.obstaculo.ativo && eraAtivo){
-    c.obstaculo={...prev.obstaculo,motivo:d.obstaculo.motivo};
-  }else{
-    c.obstaculo={ativo:false,motivo:"",desde:"",restantes:0};
-  }
-
-  // recalcula prazo se modo dias (e não está em obstáculo)
-  if(!c.obstaculo.ativo){
-    c.prazo=calcPrazo(c);
-    if(c.prazoModo==="data") c.prazo=d.prazo;
-  }
-
-  // Retorno: marcada como cumprida e devolvida → registra a data do retorno (estatística)
-  const eraCump=prev&&prev.status==="cumprida";
-  if(c.status==="cumprida" && !eraCump){
-    c.cumpridaEm=ymd(today());
-  }
-  if(c.status!=="cumprida"){c.cumpridaEm=c.status==="devolvida"?(prev&&prev.cumpridaEm)||"":"";}
-  c.devolverAte="";
-
-  if(prev){const i=cartas.findIndex(x=>x.id===prev.id);cartas[i]=c;}
-  else cartas.unshift(c);
-  persist();
-  closeModal();
-  toast(prev?"Carta atualizada.":"Carta cadastrada.","ok");
-}
-
-/* ---------- IMPORTAÇÃO DE PDF ---------- */
-function bindDropzone(){
-  const dz=el("dropz"),inp=el("pdfInput");
-  if(!dz)return;
-  inp.addEventListener("change",e=>{if(e.target.files[0])importarPDF(e.target.files[0]);});
-  ["dragenter","dragover"].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add("drag");}));
-  ["dragleave","drop"].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.remove("drag");}));
-  dz.addEventListener("drop",e=>{const f=e.dataTransfer.files[0];if(f&&f.type==="application/pdf")importarPDF(f);});
-}
-function dropMsg(txt,cls){const s=el("dropStatus");if(!s)return;s.className="status show "+cls;s.textContent=txt;}
-async function importarPDF(file){
-  if(!window.pdfjsLib){dropMsg("Biblioteca de leitura indisponível (sem conexão).","err");return;}
-  dropMsg("Lendo o PDF…","busy");
-  try{
-    pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-    const buf=await file.arrayBuffer();
-    const pdf=await pdfjsLib.getDocument({data:buf}).promise;
-    let texto="";
-    for(let p=1;p<=pdf.numPages;p++){const pg=await pdf.getPage(p);const tc=await pg.getTextContent();texto+=tc.items.map(i=>i.str).join(" ")+"\n";}
-    if(texto.replace(/\s/g,"").length<20){dropMsg("PDF sem texto pesquisável (documento digitalizado não é lido).","err");return;}
-    aplicaExtracao(texto);
-    dropMsg("Dados extraídos e preenchidos. Confira antes de salvar.","ok");
-  }catch(e){dropMsg("Não foi possível ler o PDF.","err");}
-}
-function aplicaExtracao(t){
-  const set=(idf,val)=>{if(val&&el(idf)&&!el(idf).value)el(idf).value=val;};
-  const cnj=(t.match(/\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}/)||[])[0];
-  set("f_processo",cnj);
-  if(/carta de ordem/i.test(t))el("f_tipo").value="ordem";
-  else if(/carta rogat/i.test(t))el("f_tipo").value="rogatoria";
-  else if(/carta precat/i.test(t))el("f_tipo").value="precatoria";
-  // origem fixada na Turma
-  set("f_origem","Turma Regional de Mato Grosso do Sul — TRF3");
-  const fin=(t.match(/finalidade[:\s]+([^\n.]{4,80})/i)||[])[1];
-  set("f_finalidade",fin&&fin.trim());
-  const dest=(t.match(/(?:deprecad[oa]|destino|ju[íi]zo deprecado)[:\s]+([^\n.]{4,80})/i)||[])[1];
-  set("f_destino",dest&&dest.trim());
-  const relator=(t.match(/relator[a]?[:\s]+([^\n.]{4,60})/i)||[])[1];
-  if(relator){const r=RELATORES.find(x=>relator.toLowerCase().includes(x.toLowerCase().slice(0,8)));if(r)el("f_relator").value=r;}
-  // prazo em dias
-  const pdias=(t.match(/prazo[:\s]+(?:de\s+)?(\d{1,3})\s*dias/i)||[])[1];
-  if(pdias){setModo("dias");el("f_prazoDias").value=pdias;onPrazoCalc();}
-  // compila no observações
-  const compila=[];
-  const parte=(t.match(/(?:parte|requerente|exequente)[:\s]+([^\n.]{4,70})/i)||[])[1];
-  if(parte)compila.push("Parte: "+parte.trim());
-  if(relator)compila.push("Relator: "+relator.trim());
-  const ender=(t.match(/(?:endere[çc]o)[:\s]+([^\n]{6,90})/i)||[])[1];
-  if(ender)compila.push("Endereço: "+ender.trim());
-  const idDec=(t.match(/(?:id|identificador)[:\s]+(\d{6,})/i)||[])[1];
-  if(idDec)compila.push("ID da decisão: "+idDec);
-  if(compila.length){const ta=el("f_observacoes");ta.value=(ta.value?ta.value+"\n":"")+"— Importado do PDF —\n"+compila.join("\n");}
-  checkSugestaoTipo();
-}
-
-/* =================================================================
-   GERADOR DE E-MAIL
-   ================================================================= */
-const MODELOS={
-  encaminhamento:{nome:"Encaminhamento para cumprimento",assunto:c=>`Encaminhamento de ${TIPOS[c.tipo]} — ${c.numeroCarta||c.processo}`,
-    corpo:c=>`Prezados,\n\nEncaminhamos, para cumprimento, ${TIPOS[c.tipo].toLowerCase()} nº ${c.numeroCarta||"(s/nº)"}, autos nº ${c.processo}, com a finalidade de ${c.finalidade||"diligência"}.\n\nJuízo deprecante: ${c.origem}\nPrazo de cumprimento: ${c.prazo?fmtBR(c.prazo):"a combinar"}.\n\nAgradecemos a habitual cooperação.\n\nAtenciosamente,\nSubsecretaria da Turma Regional de Mato Grosso do Sul — TRF3`},
-  reiteracao:{nome:"Reiteração de prazo",assunto:c=>`Reiteração — ${TIPOS[c.tipo]} ${c.numeroCarta||c.processo}`,
-    corpo:c=>`Prezados,\n\nReiteramos o pedido de cumprimento da ${TIPOS[c.tipo].toLowerCase()} nº ${c.numeroCarta||"(s/nº)"}, autos nº ${c.processo}, cujo prazo ${c.prazo?("se encerra em "+fmtBR(c.prazo)):"está em curso"}.\n\nSolicitamos a gentileza de informar o andamento da diligência (${c.finalidade||"—"}).\n\nAtenciosamente,\nSubsecretaria da TRgMS — TRF3`},
-  cobranca:{nome:"Cobrança de cumprimento",assunto:c=>`Cobrança de cumprimento — ${c.numeroCarta||c.processo}`,
-    corpo:c=>`Prezados,\n\nConsta em nossos controles que a ${TIPOS[c.tipo].toLowerCase()} nº ${c.numeroCarta||"(s/nº)"}, autos nº ${c.processo}, encontra-se com prazo vencido em ${c.prazo?fmtBR(c.prazo):"—"}.\n\nSolicitamos providências quanto ao cumprimento e a pronta devolução.\n\nAtenciosamente,\nSubsecretaria da TRgMS — TRF3`},
-  informacoes:{nome:"Pedido de informações sobre o andamento",assunto:c=>`Andamento — ${c.numeroCarta||c.processo}`,
-    corpo:c=>`Prezados,\n\nSolicitamos informações sobre o andamento da ${TIPOS[c.tipo].toLowerCase()} nº ${c.numeroCarta||"(s/nº)"}, autos nº ${c.processo}, finalidade ${c.finalidade||"—"}.\n\nDesde já agradecemos.\n\nAtenciosamente,\nSubsecretaria da TRgMS — TRF3`},
-  devolucao:{nome:"Solicitação de devolução (ao juízo cumpridor)",assunto:c=>`Devolução — ${c.numeroCarta||c.processo}`,
-    corpo:c=>`Prezados,\n\nUma vez cumprida a diligência, solicitamos a devolução da ${TIPOS[c.tipo].toLowerCase()} nº ${c.numeroCarta||"(s/nº)"}, autos nº ${c.processo}, a este Juízo deprecante, com a brevidade possível.\n\nAtenciosamente,\nSubsecretaria da TRgMS — TRF3`}
-};
-function modeloSugerido(c){
-  if(temPrazoCorrendo(c)){const d=diasEntre(ymd(today()),c.prazo);if(d<0)return"cobranca";if(d<=5)return"reiteracao";}
-  if(c.status==="aguardando")return"encaminhamento";
-  return"informacoes";
-}
-
-/* =================================================================
-   GERAÇÃO DE PEÇA (art. 260) — imprimir / PDF
-   ================================================================= */
-function gerarPeca(id){
-  const c=cartas.find(x=>x.id===id);
-  const req=[["Inteiro teor da petição","petição inicial e documentos que a instruem"],
-    ["Despacho judicial","decisão que ordena a expedição"],
-    ["Instrumento de mandato","procuração da parte, quando houver"],
-    ["Assinatura do juiz","subscrição da autoridade competente"]];
-  el("printArea").innerHTML=`
-    <div style="max-width:720px;margin:0 auto;font-family:Georgia,serif;color:#111">
-      <div style="text-align:center;border-bottom:2px solid #6b1f2a;padding-bottom:14px;margin-bottom:22px">
-        <div style="font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:#6b1f2a">Tribunal Regional Federal da 3ª Região</div>
-        <div style="font-size:20px;font-weight:700;margin-top:4px">Turma Regional de Mato Grosso do Sul</div>
-        <div style="font-size:15px;margin-top:8px">${TIPOS[c.tipo].toUpperCase()}${c.numeroCarta?" Nº "+c.numeroCarta:""}</div>
-      </div>
-      <table style="width:100%;font-size:13px;border-collapse:collapse;margin-bottom:18px">
-        ${[["Autos nº",c.processo],["Juízo deprecante",c.origem],["Juízo deprecado",c.destino||"—"],
-           ["Relator",c.relator||"—"],["Finalidade",c.finalidade||"—"],
-           ["Natureza da parte",NATUREZA[c.naturezaParte]+(dobra(c.naturezaParte)?" (prazo em dobro)":"")],
-           ["Via de protocolo",VIA[c.viaProtocolo]],["Prazo de cumprimento",c.prazo?fmtBR(c.prazo):"—"]]
-          .map(([l,v])=>`<tr><td style="padding:6px 10px;font-weight:700;width:180px;border-bottom:1px solid #ddd;vertical-align:top">${l}</td><td style="padding:6px 10px;border-bottom:1px solid #ddd">${esc(String(v||"—"))}</td></tr>`).join("")}
-      </table>
-      <div style="font-size:13px;font-weight:700;margin-bottom:8px;color:#6b1f2a">Peças obrigatórias (art. 260, CPC)</div>
-      <ol style="font-size:12.5px;line-height:1.7;padding-left:20px">
-        ${req.map(([t,d])=>`<li><b>${t}</b> — ${d}.</li>`).join("")}
-      </ol>
-      ${c.observacoes?`<div style="margin-top:18px;font-size:12px;color:#333"><b>Observações:</b><br>${esc(c.observacoes).replace(/\n/g,"<br>")}</div>`:""}
-      <div style="margin-top:36px;text-align:center;font-size:12px;color:#555">
-        ${fmtExt(today())}<br><br>______________________________________<br>${c.tipo==="rogatoria"?"Presidente do Tribunal":"Juízo deprecante"}
-      </div>
-    </div>`;
-  setTimeout(()=>window.print(),120);
-  toast("Peça pronta — use “Salvar como PDF” na janela de impressão.","ok");
-}
-
-/* =================================================================
-   PROTOCOLO — registro de protocolização (alimenta a aba Protocolos)
-   ================================================================= */
-function openProtocolo(id){
-  const c=cartas.find(x=>x.id===id);
-  const viaSug=sugereVia(c);
-  const viaMap={pje:"PJe",malote:"Malote Digital",email:"E-mail",autoridade:"Autoridade / órgão externo",central:"Autoridade Central"};
-  const viaAtual=c.viaProtocolo||viaSug||"malote";
-  const seq=ENC_STATUS[viaAtual]||ENC_STATUS.malote;
-  const stAtual=c.encaminhamentoStatus||c.diversoStatus||seq[0];
-  const html=`<div class="modal">
-    <div class="modal-h">${IC.route}<h2>Registro de encaminhamentos</h2><button class="iconbtn" onclick="App.closeModal()">${IC.x}</button></div>
-    <div class="modal-b">
-      <div class="cob-head">
-        <div><div style="font-weight:700">${TIPOS[c.tipo]} · ${c.numeroCarta||c.processo}</div>
-          <div class="cnj sub-cell">${c.processo}</div>
-          ${c.processoProtocolo?`<div class="proc-protocolado">Protocolado: ${esc(c.processoProtocolo)}</div>`:""}
-          <div class="small muted" style="margin-top:4px">→ ${esc(c.destino||"—")}</div></div>
-        <span class="selo ${["recebido","aviso_juntado","decisao_incidente"].includes(stAtual)?"ok":"amb"}">${esc(ENC_LABEL[stAtual]||"pendente")}</span>
-      </div>
-      <div class="banner info">${IC.info}<div>Registre a <b>via de encaminhamento</b> e o estágio correspondente. E-mail e Malote Digital são vias independentes. Os estágios mudam automaticamente conforme a via selecionada.</div></div>
-      <div class="row c2">
-        <div class="field"><label>Via de encaminhamento</label>
-          <select id="p_via" onchange="App.atualizarEstagiosEncaminhamento()">${opts(viaMap,viaAtual)}</select>
-          ${viaAtual!==viaSug?`<div class="help">sugerido pelo destino: ${viaMap[viaSug]}</div>`:""}</div>
-        <div class="field"><label>Data do registro</label>
-          <input type="date" id="p_data" value="${c.protocoladaEm||c.encaminhadoEm||ymd(today())}"></div>
-      </div>
-      <div class="field"><label>Estágio do encaminhamento</label><select id="p_status"></select></div>
-      <div class="field"><label>Nº do processo protocolado / código de rastreabilidade</label>
-        <input class="mono" id="p_proc" placeholder="processo gerado no destino, protocolo ou código de rastreabilidade" value="${esc(c.processoProtocolo||c.rastreabilidade||"")}"></div>
-      <div class="field"><label>Observações do encaminhamento</label>
-        <textarea id="p_obs" style="min-height:70px" placeholder="Ex.: documento enviado e não lido; AR aguardado; protocolo confirmado etc.">${esc(c.encaminhamentoObs||"")}</textarea></div>
-    </div>
-    <div class="modal-f">
-      ${c.protocolada||c.encaminhamentoStatus?`<button class="btn danger" onclick="App.desfazerProtocolo('${c.id}')">${IC.trash}Limpar registro</button>`:""}
-      <span class="spacer"></span>
-      <button class="btn primary" onclick="App.registrarProtocolo('${c.id}')">${IC.route}Salvar encaminhamento</button>
-    </div></div>`;
-  openModal(html);
-  atualizarEstagiosEncaminhamento(stAtual);
-}
-function atualizarEstagiosEncaminhamento(preferido){
-  const via=el("p_via")?.value||"malote";
-  const sel=el("p_status"); if(!sel)return;
-  const seq=ENC_STATUS[via]||ENC_STATUS.malote;
-  sel.innerHTML=seq.map(k=>`<option value="${k}" ${k===(preferido||sel.value)?"selected":""}>${ENC_LABEL[k]||k}</option>`).join("");
-  if(!seq.includes(sel.value)) sel.value=seq[0];
-}
-function registrarProtocolo(id){
-  const c=cartas.find(x=>x.id===id);
-  c.viaProtocolo=el("p_via").value||c.viaProtocolo;
-  c.encaminhamentoStatus=el("p_status").value;
-  c.diversoStatus=c.encaminhamentoStatus;
-  c.processoProtocolo=el("p_proc").value.trim();
-  c.rastreabilidade=c.processoProtocolo;
-  c.protocoladaEm=el("p_data").value||ymd(today());
-  c.encaminhadoEm=c.protocoladaEm;
-  c.encaminhamentoObs=el("p_obs").value.trim();
-  c.protocolada=["pje"].includes(c.viaProtocolo)&&["protocolado","confirmacao_recebimento_protocolo","decisao_incidente"].includes(c.encaminhamentoStatus);
-  c.atualizadoEm=new Date().toISOString();
-  registrarAlteracao("encaminhamento",{id:c.id,processo:c.processo,via:c.viaProtocolo,status:c.encaminhamentoStatus});
-  persist();closeModal();
-  toast("Encaminhamento registrado.","ok");
-}
-function desfazerProtocolo(id){
-  const c=cartas.find(x=>x.id===id);
-  c.protocolada=false;c.protocoladaEm="";c.encaminhadoEm="";c.encaminhamentoStatus="";c.encaminhamentoObs="";c.rastreabilidade="";c.atualizadoEm=new Date().toISOString();
-  persist();closeModal();
-  toast("Registro de encaminhamento limpo.","ok");
-}
-
-/* =================================================================
-   COBRANÇA DE CUMPRIMENTO — e-mail por nível + certidões
-   ================================================================= */
-function corpoCobranca(c,cb){
-  const head=`${TIPOS[c.tipo]} nº ${c.numeroCarta||"(s/nº)"}, autos nº ${c.processo}`;
-  const dias=cb?cb.dias:(diasParado(c)||0);
-  const feitas=cb?cb.feitas:(c.reiteracoes||0);
-  const nivel=cb?cb.nivel:1;
-  let assunto,corpo;
-  if(nivel>=3){
-    assunto=`Reiteração formal de cumprimento — ${c.numeroCarta||c.processo}`;
-    corpo=`Prezados,\n\nReiteramos, com urgência, o pedido de cumprimento da ${head}, finalidade ${c.finalidade||"diligência"}.\n\nA carta permanece aguardando cumprimento há ${dias} dias corridos, já reiterada ${feitas} vez(es), sem notícia de andamento. Solicitamos providências imediatas e a pronta devolução dos autos, sob pena de comunicação à Corregedoria Regional e de ciência ao Juízo deprecante.\n\nAtenciosamente,\nSubsecretaria da Turma Regional de Mato Grosso do Sul — TRF3`;
-  }else if(nivel===2){
-    assunto=`Reiteração de cumprimento — ${c.numeroCarta||c.processo}`;
-    corpo=`Prezados,\n\nReiteramos o pedido de cumprimento da ${head}${c.prazo?`, cujo prazo se encerrou em ${fmtBR(c.prazo)}`:""}.\n\nDecorridos ${dias} dias do recebimento sem notícia de cumprimento, solicitamos informações sobre o andamento da diligência (${c.finalidade||"—"}) e, uma vez cumprida, a pronta devolução.\n\nAtenciosamente,\nSubsecretaria da TRgMS — TRF3`;
-  }else{
-    assunto=`Andamento de ${TIPOS[c.tipo].toLowerCase()} — ${c.numeroCarta||c.processo}`;
-    corpo=`Prezados,\n\nConsultamos sobre o andamento da ${head}, finalidade ${c.finalidade||"diligência"}, recebida nesse juízo em ${fmtBR(c.recebimento)}.\n\nGentileza informar a fase atual do cumprimento. Desde já agradecemos a habitual cooperação.\n\nAtenciosamente,\nSubsecretaria da TRgMS — TRF3`;
-  }
-  return {assunto,corpo};
-}
-function cobMetric(v,l){return`<div class="cob-metric"><div class="cm-v">${v}</div><div class="cm-l">${l}</div></div>`;}
-function comModels(c,cb){
-  const M={};
-  if(emTramitacao(c)) M.cobranca_regua={nome:"Cobrança (régua) — nível atual",_fn:()=>corpoCobranca(c,cb)};
-  Object.entries(MODELOS).forEach(([k,m])=>{M[k]={nome:m.nome,_fn:()=>({assunto:m.assunto(c),corpo:m.corpo(c)})};});
-  return M;
-}
-function recarregaComunic(){
-  if(!cobCtx)return;
-  const k=el("e_modelo").value,m=cobCtx.models[k];if(!m)return;
-  const r=m._fn();el("cob_assunto").value=r.assunto;el("cob_corpo").value=r.corpo;
-}
-function abrirComunicacoes(id,fromRegua){
-  const c=cartas.find(x=>x.id===id);
-  const cb=cobranca(c);
-  const models=comModels(c,cb);
-  const keys=Object.keys(models);
-  let sel;
-  if((fromRegua||(cb&&cb.pendentes>0))&&models.cobranca_regua) sel="cobranca_regua";
-  else{const s=modeloSugerido(c);sel=models[s]?s:keys[0];}
-  cobCtx={c,models,sel};
-  const hist=c.historicoCobranca||[];
-  const nivelTxt=cb&&cb.nivel?NIVEL_LABEL[cb.nivel]:"—";
-  let banner;
-  if(cb&&cb.susp) banner=`<div class="banner warn">${IC.pause}<div>Relógio de cobrança <b>suspenso</b> — a carta está sob obstáculo/suspensão (art. 221). A contagem retoma quando a suspensão for levantada.</div></div>`;
-  else if(cb&&cb.pendentes>0) banner=`<div class="banner warn">${IC.alert}<div><b>${cb.pendentes}</b> cobrança(s) em atraso. A régua prevê uma cobrança a cada <b>${cb.INT} dias</b> de carta parada.</div></div>`;
-  else if(cb) banner=`<div class="banner info">${IC.info}<div>Em dia. Próxima cobrança ${cb.faltam!=null?`em <b>${cb.faltam}</b> dia(s)`:"—"}.</div></div>`;
-  else banner=`<div class="banner info">${IC.info}<div>Carta fora da régua de cobrança. Use os modelos abaixo para encaminhar, informar ou solicitar devolução.</div></div>`;
-  const html=`<div class="modal">
-    <div class="modal-h">${IC.mail}<h2>Comunicações</h2><button class="iconbtn" onclick="App.closeModal()">${IC.x}</button></div>
-    <div class="modal-b">
-      <div class="cob-head">
-        <div><div style="font-weight:700">${TIPOS[c.tipo]} · ${c.numeroCarta||c.processo}</div>
-          <div class="cnj sub-cell">${c.processo}</div>
-          <div class="small muted" style="margin-top:4px">→ ${esc(c.destino||"—")} · ${esc(c.finalidade||"—")}</div></div>
-        <div class="cob-metrics">
-          ${cobMetric(cb?cb.dias:"—","dias parada")}
-          ${cobMetric(cb?cb.feitas:(c.reiteracoes||0),"cobranças")}
-          ${cobMetric(nivelTxt,"nível")}
-        </div>
-      </div>
-      ${banner}
-      <div class="field"><label>Modelo de comunicação</label>
-        <select id="e_modelo" onchange="App.recarregaComunic()">${Object.entries(models).map(([k,m])=>`<option value="${k}" ${k===sel?"selected":""}>${m.nome}</option>`).join("")}</select></div>
-      <div class="field"><label>Para</label><input id="cob_para" value="${esc(c.emailDestino)}" placeholder="destinatário"></div>
-      <div class="field"><label>Assunto</label><input id="cob_assunto"></div>
-      <div class="field"><label>Mensagem</label><textarea id="cob_corpo" style="min-height:180px"></textarea></div>
-      <div class="field"><label>Certidões pertinentes</label>
-        <div class="cert-row">
-          <button class="btn sm" onclick="App.gerarCertidao('${c.id}','decurso')">${IC.stamp}Decurso de prazo</button>
-          <button class="btn sm" onclick="App.gerarCertidao('${c.id}','permanencia')">${IC.stamp}Permanência</button>
-          <button class="btn sm" onclick="App.gerarCertidao('${c.id}','reiteracao')">${IC.stamp}Reiteração</button>
-        </div>
-        <div class="small muted" style="margin-top:6px">Cada botão baixa a certidão já formatada em <b>.docx</b> (Word), pronta para revisão e assinatura.</div>
-      </div>
-      ${hist.length?`<div class="field"><label>Histórico de cobranças</label>
-        <div class="cob-hist">${hist.slice().reverse().map(h=>`<div class="cal-row" style="padding:7px 0"><div style="flex:1"><b>${fmtBR(h.data)}</b> · ${NIVEL_LABEL[h.nivel]||"cobrança"}</div><div class="small muted">${h.dias} dias parada</div></div>`).join("")}</div></div>`:""}
-    </div>
-    <div class="modal-f">
-      <span class="spacer"></span>
-      <button class="btn" onclick="App.copiarCobranca()">${IC.copy}Copiar e-mail</button>
-      <button class="btn" onclick="App.abrirEmailCobranca()">${IC.send}Abrir no app</button>
-      ${emTramitacao(c)?`<button class="btn primary" onclick="App.registrarCobranca('${c.id}')">${IC.check}Registrar cobrança</button>`:""}
-    </div></div>`;
-  openModal(html);recarregaComunic();
-}
-function copiarCobranca(){
-  const txt=`Assunto: ${el("cob_assunto").value}\n\n${el("cob_corpo").value}`;
-  navigator.clipboard?.writeText(txt).then(()=>toast("E-mail copiado.","ok"),()=>toast("Não foi possível copiar.","err"));
-}
-function abrirEmailCobranca(){
-  const href=`mailto:${encodeURIComponent(el("cob_para").value)}?subject=${encodeURIComponent(el("cob_assunto").value)}&body=${encodeURIComponent(el("cob_corpo").value)}`;
-  window.location.href=href;
-}
-function registrarCobranca(id){
-  const c=cartas.find(x=>x.id===id);const cb=cobranca(c);
-  c.reiteracoes=(c.reiteracoes||0)+1;
-  c.ultimaCobranca=ymd(today());
-  c.historicoCobranca=c.historicoCobranca||[];
-  c.historicoCobranca.push({data:ymd(today()),nivel:cb?(cb.nivel||1):1,dias:cb?cb.dias:(diasParado(c)||0)});
-  c.atualizadoEm=new Date().toISOString();
-  persist();closeModal();
-  toast("Cobrança registrada e contabilizada.","ok");
-}
-/* ---------- GERADOR DE .DOCX (OOXML montado no navegador, sem dependências) ---------- */
-function crc32(bytes){
-  if(!crc32.t){const t=crc32.t=[];for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=c&1?0xEDB88320^(c>>>1):c>>>1;t[n]=c>>>0;}}
-  const t=crc32.t;let crc=0xFFFFFFFF;
-  for(let i=0;i<bytes.length;i++)crc=t[(crc^bytes[i])&0xFF]^(crc>>>8);
-  return (crc^0xFFFFFFFF)>>>0;
-}
-function zipStore(files){
-  const enc=new TextEncoder();
-  const u16=n=>[n&255,(n>>8)&255], u32=n=>[n&255,(n>>8)&255,(n>>16)&255,(n>>24)&255];
-  const locals=[],central=[];let offset=0;
-  files.forEach(f=>{
-    const name=enc.encode(f.name),data=f.bytes,crc=crc32(data);
-    const lh=[].concat(u32(0x04034b50),u16(20),u16(0),u16(0),u16(0),u16(0),u32(crc),u32(data.length),u32(data.length),u16(name.length),u16(0));
-    const local=new Uint8Array(lh.length+name.length+data.length);
-    local.set(lh,0);local.set(name,lh.length);local.set(data,lh.length+name.length);
-    locals.push(local);
-    const ch=[].concat(u32(0x02014b50),u16(20),u16(20),u16(0),u16(0),u16(0),u16(0),u32(crc),u32(data.length),u32(data.length),u16(name.length),u16(0),u16(0),u16(0),u16(0),u32(0),u32(offset));
-    const cent=new Uint8Array(ch.length+name.length);
-    cent.set(ch,0);cent.set(name,ch.length);
-    central.push(cent);offset+=local.length;
-  });
-  const cdSize=central.reduce((a,c)=>a+c.length,0),cdOffset=offset;
-  const eocd=new Uint8Array([].concat(u32(0x06054b50),u16(0),u16(0),u16(files.length),u16(files.length),u32(cdSize),u32(cdOffset),u16(0)));
-  const total=locals.reduce((a,c)=>a+c.length,0)+cdSize+eocd.length;
-  const out=new Uint8Array(total);let p=0;
-  locals.forEach(c=>{out.set(c,p);p+=c.length;});
-  central.forEach(c=>{out.set(c,p);p+=c.length;});
-  out.set(eocd,p);return out;
-}
-function dRun(t,r){r=r||{};let rp="";
-  if(r.b)rp+="<w:b/>";if(r.i)rp+="<w:i/>";if(r.caps)rp+="<w:caps/>";
-  rp+=`<w:rFonts w:ascii="${r.font||"Times New Roman"}" w:hAnsi="${r.font||"Times New Roman"}"/>`;
-  if(r.sz)rp+=`<w:sz w:val="${r.sz}"/><w:szCs w:val="${r.sz}"/>`;
-  if(r.color)rp+=`<w:color w:val="${r.color}"/>`;
-  if(r.cs)rp+=`<w:spacing w:val="${r.cs}"/>`;
-  return `<w:r><w:rPr>${rp}</w:rPr><w:t xml:space="preserve">${esc(t)}</w:t></w:r>`;
-}
-function dPar(runs,p){p=p||{};let pp="";
-  if(p.jc)pp+=`<w:jc w:val="${p.jc}"/>`;
-  pp+=`<w:spacing${p.line?` w:line="${p.line}" w:lineRule="auto"`:""} w:before="${p.before||0}" w:after="${p.after!=null?p.after:160}"/>`;
-  if(p.bdr)pp+=`<w:pBdr><w:bottom w:val="single" w:sz="12" w:space="6" w:color="6B1F2A"/></w:pBdr>`;
-  return `<w:p><w:pPr>${pp}</w:pPr>${Array.isArray(runs)?runs.join(""):runs}</w:p>`;
-}
-function baixarDocx(nomeArquivo,bodyXml){
-  const enc=new TextEncoder();
-  const ct=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`;
-  const rels=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
-  const doc=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${bodyXml}<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1418" w:right="1418" w:bottom="1418" w:left="1701" w:header="709" w:footer="709" w:gutter="0"/></w:sectPr></w:body></w:document>`;
-  const zip=zipStore([
-    {name:"[Content_Types].xml",bytes:enc.encode(ct)},
-    {name:"_rels/.rels",bytes:enc.encode(rels)},
-    {name:"word/document.xml",bytes:enc.encode(doc)}
-  ]);
-  const blob=new Blob([zip],{type:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"});
-  const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=nomeArquivo;
-  document.body.appendChild(a);a.click();
-  setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},1500);
-}
-function gerarCertidao(id,qual){
-  const c=cartas.find(x=>x.id===id);
-  const dias=diasParado(c);
-  const ref=`${TIPOS[c.tipo].toLowerCase()} nº ${c.numeroCarta||"(s/nº)"}, autos nº ${c.processo}`;
-  let titulo,corpo;
-  if(qual==="decurso"){
-    titulo="Certidão de decurso de prazo";
-    corpo=`Certifico, para os devidos fins, que decorreu o prazo assinalado para cumprimento da ${ref}${c.prazo?`, fixado para ${fmtBR(c.prazo)}`:""}, sem que tenha havido, até a presente data, notícia de cumprimento ou a devolução dos autos pelo juízo deprecado (${c.destino||"—"}). O referido é verdade e dou fé.`;
-  }else if(qual==="permanencia"){
-    titulo="Certidão de permanência";
-    corpo=`Certifico, para os devidos fins, que a ${ref} permanece aguardando cumprimento perante o juízo deprecado (${c.destino||"—"}) há ${dias!=null?dias:"—"} dias corridos, contados de seu recebimento em ${fmtBR(c.recebimento)}, tendo sido reiterada ${c.reiteracoes||0} vez(es) até esta data. O referido é verdade e dou fé.`;
-  }else{
-    titulo="Certidão de reiteração";
-    corpo=`Certifico, para os devidos fins, que nesta data foi reiterado ao juízo deprecado (${c.destino||"—"}), pela via ${VIA[c.viaProtocolo].split(" (")[0].toLowerCase()}, o pedido de cumprimento da ${ref}, com a finalidade de ${c.finalidade||"diligência"}. Lavro a presente como ato ordinatório (art. 152, VI, do CPC). O referido é verdade e dou fé.`;
-  }
-  const body=[
-    dPar([dRun("Tribunal Regional Federal da 3ª Região",{b:true,sz:18,color:"6B1F2A",caps:true,cs:24})],{jc:"center",after:20}),
-    dPar([dRun("Turma Regional de Mato Grosso do Sul",{b:true,sz:26})],{jc:"center",after:20}),
-    dPar([dRun("Subsecretaria · Divisão de Triagem e Cumprimento — DKMS",{sz:18,color:"555555"})],{jc:"center",after:300,bdr:true}),
-    dPar([dRun(titulo,{b:true,sz:28,color:"6B1F2A",caps:true,cs:20})],{jc:"center",after:360}),
-    dPar([dRun(corpo,{sz:24})],{jc:"both",line:360,after:560}),
-    dPar([dRun(fmtExt(today()),{sz:23})],{jc:"center",after:680}),
-    dPar([dRun("______________________________________",{sz:23})],{jc:"center",after:40}),
-    dPar([dRun("Servidor(a) responsável — DKMS / TRgMS",{sz:22,color:"444444"})],{jc:"center",after:0})
-  ].join("");
-  const ref2=(c.numeroCarta||c.processo||"carta").replace(/[^\w.-]+/g,"-");
-  baixarDocx(`Certidao_${qual}_${ref2}.docx`,body);
-  toast("Certidão .docx baixada — já formatada.","ok");
-}
-
-function relatorioVencidas(){
-  const venc=ordenadas(cartas.filter(c=>temPrazoCorrendo(c)&&diasEntre(ymd(today()),c.prazo)<=0));
-  if(!venc.length){toast("Nenhuma carta vencida para relatar.","ok");return;}
-  const porDiv={};venc.forEach(c=>{(porDiv[c.divisao]=porDiv[c.divisao]||[]).push(c);});
-  el("printArea").innerHTML=`<div style="max-width:760px;margin:0 auto;font-family:Georgia,serif;color:#111">
-    <div style="border-bottom:2px solid #6b1f2a;padding-bottom:12px;margin-bottom:20px">
-      <div style="font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#6b1f2a">Turma Regional de Mato Grosso do Sul · TRF3</div>
-      <div style="font-size:20px;font-weight:700;margin-top:4px">Relatório de cartas vencidas</div>
-      <div style="font-size:12px;color:#555;margin-top:4px">${fmtExt(today())} · ${venc.length} carta(s) com prazo vencido</div>
-    </div>
-    ${Object.entries(porDiv).map(([div,arr])=>`
-      <div style="font-size:14px;font-weight:700;color:#6b1f2a;margin:16px 0 8px">${DIVISAO[div]||div}</div>
-      <table style="width:100%;font-size:12px;border-collapse:collapse">
-        <thead><tr>${["Carta","Processo","Destino","Finalidade","Venc.","Atraso"].map(h=>`<th style="text-align:left;padding:6px 8px;border-bottom:1.5px solid #6b1f2a">${h}</th>`).join("")}</tr></thead>
-        <tbody>${arr.map(c=>{const d=-diasEntre(ymd(today()),c.prazo);return `<tr>
-          <td style="padding:6px 8px;border-bottom:1px solid #eee">${c.numeroCarta||TIPOS[c.tipo]}</td>
-          <td style="padding:6px 8px;border-bottom:1px solid #eee;font-family:monospace">${c.processo}</td>
-          <td style="padding:6px 8px;border-bottom:1px solid #eee">${esc(c.destino||"—")}</td>
-          <td style="padding:6px 8px;border-bottom:1px solid #eee">${esc(c.finalidade||"—")}</td>
-          <td style="padding:6px 8px;border-bottom:1px solid #eee">${fmtBR(c.prazo)}</td>
-          <td style="padding:6px 8px;border-bottom:1px solid #eee;color:#b42318;font-weight:700">${d} dia(s)</td></tr>`;}).join("")}</tbody>
-      </table>`).join("")}
-  </div>`;
-  setTimeout(()=>window.print(),120);
-}
-
-/* =================================================================
-   AÇÕES DE LINHA / DKMS
-   ================================================================= */
-function excluir(id,fromForm){
-  const c=cartas.find(x=>x.id===id);
-  if(!confirm(`Excluir a carta ${c.numeroCarta||c.processo}? Esta ação não pode ser desfeita.`))return;
-  cartas=cartas.filter(x=>x.id!==id);persist();
-  if(fromForm)closeModal();
-  toast("Carta excluída.","ok");
-}
-function fromKpi(cls){
-  go("gestao");
-  filtro={q:"",tipo:"",prazo:"",status:"",cobranca:"",relator:"",divisao:""};
-  if(cls==="venc")filtro.prazo="venc";
-  if(cls==="vir")filtro.prazo="vir";
-  if(cls==="cump")filtro.status="cumprida";
-  if(cls==="cob")filtro.cobranca="devida";
-  render();
-}
-
-/* =================================================================
-   EXPORTAÇÃO CSV
-   ================================================================= */
-function exportCSV(modo){
-  let list=cartas;
-  if(modo==="venc")list=cartas.filter(c=>temPrazoCorrendo(c)&&diasEntre(ymd(today()),c.prazo)<=0);
-  if(!list.length){toast("Nada a exportar.","err");return;}
-  const cols=[["Tipo",c=>TIPOS[c.tipo]],["Status",c=>STATUS[c.status]],["Divisão",c=>c.divisao],
-    ["Processo nosso",c=>c.processo],["Carta protocolizada",c=>c.processoProtocolo],["Carta",c=>c.numeroCarta],["Relator",c=>c.relator],["Responsável",c=>c.responsavel],
-    ["Natureza",c=>NATUREZA[c.naturezaParte]],["Origem",c=>c.origem],["Destino",c=>c.destino],
-    ["E-mail destino",c=>c.emailDestino],["Finalidade",c=>c.finalidade],["Via",c=>VIA[c.viaProtocolo]],
-    ["Recebimento",c=>fmtBR(c.recebimento)],["Prazo",c=>c.prazo?fmtBR(c.prazo):""],["Situação",c=>situacao(c).txt],
-    ["Parada (dias)",c=>{const d=diasParado(c);return d==null?"":d;}],["Cobranças",c=>c.reiteracoes||0],
-    ["Obstáculo",c=>c.obstaculo&&c.obstaculo.ativo?c.obstaculo.motivo:""]];
-  const esc2=s=>`"${String(s??"").replace(/"/g,'""')}"`;
-  const rows=[cols.map(c=>c[0]).join(";"),...list.map(c=>cols.map(col=>esc2(col[1](c))).join(";"))];
-  const blob=new Blob(["\ufeff"+rows.join("\r\n")],{type:"text/csv;charset=utf-8"});
-  const a=document.createElement("a");a.href=URL.createObjectURL(blob);
-  a.download=`deprecata_${modo==="venc"?"vencidas_":""}${ymd(today())}.csv`;a.click();
-  toast("Planilha exportada.","ok");
-}
-
-/* =================================================================
-   INFRA: MODAL / TOAST / OPTS / PERSIST
-   ================================================================= */
-function openModal(html){const s=el("scrim");s.innerHTML=html;s.classList.add("on");document.body.style.overflow="hidden";
-  s.onclick=e=>{if(e.target===s)closeModal();};}
-function closeModal(){const s=el("scrim");s.classList.remove("on");s.innerHTML="";document.body.style.overflow="";editingId=null;}
-function toast(msg,type=""){
-  const wrap=el("toasts");const t=document.createElement("div");t.className="toast "+type;
-  const ic=type==="ok"?IC.check:type==="err"?IC.alert:IC.info;
-  t.innerHTML=ic+`<span>${msg}</span>`;wrap.appendChild(t);
-  setTimeout(()=>{t.style.opacity="0";t.style.transform="translateY(8px)";setTimeout(()=>t.remove(),250);},2800);
-}
-function opts(map,sel){return Object.entries(map).map(([k,v])=>`<option value="${k}" ${k===sel?"selected":""}>${v}</option>`).join("");}
-function esc(s){return String(s??"").replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));}
-function persist(rerender=true){Store.save(cartas);if(rerender){renderTabs();render();}}
-
-function carregarExemplos(){
-  if(cartas.length&&!confirm("Isto adicionará cartas de exemplo ao acervo. Continuar?"))return;
-  cartas=[...exemplos(),...cartas];persist();toast("Exemplos carregados.","ok");
-}
-function limparTudo(){
-  if(!confirm("Remover TODAS as cartas? Esta ação não pode ser desfeita."))return;
-  cartas=[];persist();toast("Acervo esvaziado.");
-}
-function limparFiltros(){filtro={q:"",tipo:"",prazo:"",status:"",cobranca:"",relator:"",divisao:""};renderGestao();}
-
-/* =================================================================
-   INIT
-   ================================================================= */
-function init(){
-  loadConfig();
-  duvidas=loadKey(DUVIDAS_KEY,[]);if(!Array.isArray(duvidas))duvidas=[];
-  contatos=loadKey(CONTATOS_KEY,null);
-  if(!Array.isArray(contatos)){contatos=seedContatos();saveKey(CONTATOS_KEY,contatos);}
-  contatos.forEach(c=>{c.favorito=!!c.favorito;c.meios=Array.isArray(c.meios)?c.meios:[...(c.telefone?[{tipo:"Telefone",valor:c.telefone,obs:""}]:[]),...(c.email?[{tipo:"E-mail",valor:c.email,obs:""}]:[])];});
-  const saved=Store.load();
-  cartas=Array.isArray(saved)?saved:exemplos();
-  if(!Array.isArray(saved))Store.save(cartas);
-  // normaliza registros antigos
-  cartas.forEach(c=>{
-    c.obstaculo=c.obstaculo||{ativo:false,motivo:"",desde:"",restantes:0};
-    c.comunicacao=c.comunicacao||{feita:false,meio:"",data:"",hora:"",servidor:""};
-    c.checklist=c.checklist||{acordao:false,certidao:false,procuracoes:false,despacho:false,mandato:false};
-    c.reiteracoes=c.reiteracoes||0;c.divisao=c.divisao||"DKMS";c.naturezaParte=c.naturezaParte||"privada";
-    c.viaProtocolo=c.viaProtocolo||"malote";c.atualizadoEm=c.atualizadoEm||new Date().toISOString();
-    c.diasSuspensos=Number(c.diasSuspensos||0);c.ultimaCobranca=c.ultimaCobranca||"";
-    c.processoProtocolo=c.processoProtocolo||"";
-    c.protocolada=!!c.protocolada;c.protocoladaEm=c.protocoladaEm||"";
-    c.diversoStatus=c.diversoStatus||"preparar"; c.encaminhamentoStatus=c.encaminhamentoStatus||""; c.encaminhamentoObs=c.encaminhamentoObs||""; c.rastreabilidade=c.rastreabilidade||""; c.encaminhadoEm=c.encaminhadoEm||"";
-    c.historicoCobranca=Array.isArray(c.historicoCobranca)?c.historicoCobranca:[];
-  });
-  renderTabs();go("painel");
-}
-
-/* expõe API usada no HTML */
-window.App={
-  go,openForm,closeModal,salvar,excluir,
-  gerarPeca,relatorioVencidas,exportCSV,carregarExemplos,limparTudo,limparFiltros,
-  setModo,onPrazoCalc,onNatureza,toggleObstField,toggleComField,checkSugestaoTipo,
-  fromKpi,avancarDiverso,showReguaTab,
-  abrirComunicacoes,recarregaComunic,copiarCobranca,abrirEmailCobranca,registrarCobranca,gerarCertidao,setCobrancaIntervalo,
-  openProtocolo,registrarProtocolo,desfazerProtocolo,atualizarEstagiosEncaminhamento,
-  intimPick,intimGirar,intimDuvToggle,addDuvida,toggleDuvida,delDuvida,
-  openContato,salvarContato,excluirContato,importarContatosOficiais,filtrarOrgao,addMeioContato,toggleFavoritoContato,baixarBackupStorage,importarBackupStorage
-};
-
-document.addEventListener("DOMContentLoaded",init);
-if(document.readyState!=="loading")init();
-})();
-
-</script>
-</body>
-</html>

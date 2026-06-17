@@ -2611,6 +2611,22 @@ window.App={
   openContato,salvarContato,excluirContato,importarContatosOficiais,filtrarOrgao,addMeioContato,toggleFavoritoContato,baixarBackupStorage,importarBackupStorage
 };
 
+  async function salvarCartaSupabase(carta) {
+  const supa = window.deprecataSupabase;
+  if (!supa || !carta?.id) return;
+
+  const payload = {
+    id: carta.id,
+    dados: carta,
+    atualizado_em: new Date().toISOString()
+  };
+
+  const { error } = await supa
+    .from("cartas")
+    .upsert(payload, { onConflict: "id" });
+
+  if (error) console.error("Erro ao salvar carta no Supabase:", error);
+}
 document.addEventListener("DOMContentLoaded",init);
 if(document.readyState!=="loading")init();
 })();

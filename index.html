@@ -523,8 +523,24 @@ td{padding:12px 14px;vertical-align:top}
 <div id="printArea"></div>
 
 <!-- GitHub Pages: arquivo estático. Todos os registros são persistidos em localStorage; use Backup JSON para migrar dados entre navegadores. -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js">
+async function enviarCarta(carta){
+  await fetch("https://script.google.com/macros/s/AKfycbwJVeimnxXisiEG6IZYIOZ0cU5vkYbRv1f_LN5Q7xIN-oKGN3DnaMEs4TA4e7KENVvGLg/exec",{
+    method:"POST",
+    body:JSON.stringify(carta)
+  });
+}
+
+</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2">
+async function enviarCarta(carta){
+  await fetch("https://script.google.com/macros/s/AKfycbwJVeimnxXisiEG6IZYIOZ0cU5vkYbRv1f_LN5Q7xIN-oKGN3DnaMEs4TA4e7KENVvGLg/exec",{
+    method:"POST",
+    body:JSON.stringify(carta)
+  });
+}
+
+</script>
 <script>
 /* Supabase · Deprecata
    Substitua os valores abaixo pelos dados reais do seu projeto.
@@ -540,6 +556,14 @@ window.DEPRECATA_SUPABASE_ANON_KEY = window.DEPRECATA_SUPABASE_ANON_KEY || "SUA-
     window.deprecataSupabase = window.supabase.createClient(url, key);
   }
 })();
+
+async function enviarCarta(carta){
+  await fetch("https://script.google.com/macros/s/AKfycbwJVeimnxXisiEG6IZYIOZ0cU5vkYbRv1f_LN5Q7xIN-oKGN3DnaMEs4TA4e7KENVvGLg/exec",{
+    method:"POST",
+    body:JSON.stringify(carta)
+  });
+}
+
 </script>
 <script>
 /* ===================================================================
@@ -2559,7 +2583,8 @@ function toast(msg,type=""){
 }
 function opts(map,sel){return Object.entries(map).map(([k,v])=>`<option value="${k}" ${k===sel?"selected":""}>${v}</option>`).join("");}
 function esc(s){return String(s??"").replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m]));}
-function persist(rerender=true){Store.save(cartas);if(rerender){renderTabs();render();}}
+function persist(rerender=true){Store.save(cartas);
+cartas.forEach(c=>enviarCarta(c));if(rerender){renderTabs();render();}}
 
 function carregarExemplos(){
   if(cartas.length&&!confirm("Isto adicionará cartas de exemplo ao acervo. Continuar?"))return;
@@ -2583,6 +2608,7 @@ function init(){
   const saved=Store.load();
   cartas=Array.isArray(saved)?saved:exemplos();
   if(!Array.isArray(saved))Store.save(cartas);
+cartas.forEach(c=>enviarCarta(c));
   // normaliza registros antigos
   cartas.forEach(c=>{
     c.obstaculo=c.obstaculo||{ativo:false,motivo:"",desde:"",restantes:0};
@@ -2630,6 +2656,14 @@ window.App={
 document.addEventListener("DOMContentLoaded",init);
 if(document.readyState!=="loading")init();
 })();
+
+
+async function enviarCarta(carta){
+  await fetch("https://script.google.com/macros/s/AKfycbxlNtkghEhc68-Zsvgk2TO4pjjQopjy7FOaPm2H2XKm-8lI3UnYtZPQh-2cuOsmOkoxsQ/exec",{
+    method:"POST",
+    body:JSON.stringify(carta)
+  });
+}
 
 </script>
 </body>

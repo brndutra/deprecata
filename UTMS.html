@@ -516,6 +516,7 @@ td{padding:12px 14px;vertical-align:top}
 
 <!-- GitHub Pages: arquivo estático. Todos os registros são persistidos em localStorage; use Backup JSON para migrar dados entre navegadores. -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 /* ===================================================================
    DEPRECATA · Turma Regional de Mato Grosso do Sul
@@ -523,6 +524,25 @@ td{padding:12px 14px;vertical-align:top}
    =================================================================== */
 (function(){
 "use strict";
+
+/* ---------- SUPABASE (opcional; usado para anexos DOCX) ----------
+   Configure sem expor chaves sensíveis no código:
+   localStorage.setItem("deprecata:supabase:url","https://SEU-PROJETO.supabase.co")
+   localStorage.setItem("deprecata:supabase:anon","SUA_ANON_PUBLIC_KEY")
+   ou defina window.DEPRECATA_SUPABASE_URL / window.DEPRECATA_SUPABASE_ANON_KEY antes deste script.
+------------------------------------------------------------------ */
+const SUPABASE_URL = window.DEPRECATA_SUPABASE_URL || localStorage.getItem("deprecata:supabase:url") || "";
+const SUPABASE_ANON_KEY = window.DEPRECATA_SUPABASE_ANON_KEY || localStorage.getItem("deprecata:supabase:anon") || "";
+let supabase = window.deprecataSupabase || null;
+try{
+  if(!supabase && window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY){
+    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    window.deprecataSupabase = supabase;
+  }
+}catch(e){
+  console.warn("Supabase não inicializado:", e);
+}
+
 
 /* ---------- ÍCONES (SVG inline) ---------- */
 const P = (d,extra="")=>`<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" ${extra}>${d}</svg>`;
@@ -935,30 +955,142 @@ function render(){
   if(view==="contatos")return renderContatos();
 }
 
-function operacionalPainel(){
+const OPERACIONAL = {
+  ordem:{
+    tab:"Carta de Ordem",
+    titulo:"Carta de Ordem",
+    desc:"Usada quando a TRg/MS determina que juízo federal subordinado pratique ato com supervisão jurisdicional.",
+    passos:[
+      ["1. Identificar o ato","Confirmar se a diligência exige atuação de magistrado destinatário, como oitiva, audiência, inspeção ou produção de prova."],
+      ["2. Conferir peças","Anexar decisão, petição pertinente, documentos essenciais, procurações e dados completos do processo."],
+      ["3. Expedir","Gerar carta/ofício, colher assinatura e registrar o expediente nos autos."],
+      ["4. Encaminhar","Remeter pelo PJe, quando cabível, ou pela via institucional definida para a unidade destinatária."],
+      ["5. Controlar retorno","Acompanhar cumprimento, certificar devolução e baixar a pendência operacional."]
+    ],
+    docs:[
+      ["Minuta de Carta de Ordem","Ordem dirigida a juízo federal subordinado para prática de ato instrutório ou de cumprimento."],
+      ["Certidão de expedição","Registra a expedição e a via utilizada."],
+      ["Certidão de devolução","Registra o retorno e o resultado do cumprimento."]
+    ]
+  },
+  pje:{
+    tab:"PJe",
+    titulo:"Remessa direta pelo PJe",
+    desc:"Fluxo preferencial para atos internos da 3ª Região que podem ser encaminhados diretamente à unidade competente ou à Central de Mandados.",
+    passos:[
+      ["1. Verificar competência","Confirmar que o destinatário integra a 3ª Região e que o ato é executório ou operacionalmente simples."],
+      ["2. Dispensar carta formal","Quando o PJe permitir remessa direta, evitar carta precatória desnecessária."],
+      ["3. Protocolar/remeter","Registrar o expediente no PJe, com identificação do destinatário e da finalidade."],
+      ["4. Registrar protocolo","Preencher o número do incidente/protocolo no campo próprio da carta."],
+      ["5. Monitorar decisão/recebimento","Acompanhar confirmação, decisão no incidente ou retorno da diligência."]
+    ],
+    docs:[
+      ["Comprovante de protocolo PJe","Documento de rastreabilidade da remessa."],
+      ["Certidão de protocolo","Certifica o encaminhamento eletrônico."],
+      ["Certidão de confirmação","Registra recebimento ou decisão no incidente."]
+    ]
+  },
+  malote:{
+    tab:"Malote",
+    titulo:"Malote Digital",
+    desc:"Via institucional para comunicação entre órgãos do Judiciário quando não houver tramitação direta no PJe.",
+    passos:[
+      ["1. Preparar pacote","Conferir petição, decisão, procurações e documentos indispensáveis."],
+      ["2. Gerar PDF","Consolidar o expediente assinado e legível."],
+      ["3. Enviar por Malote","Selecionar órgão destinatário e registrar código de rastreabilidade."],
+      ["4. Aguardar leitura/recebimento","Controlar aviso de leitura ou confirmação."],
+      ["5. Juntar recibo","Certificar e anexar o recibo/retorno nos autos."]
+    ],
+    docs:[
+      ["Ofício de encaminhamento","Formaliza a solicitação ao órgão destinatário."],
+      ["Recibo de Malote Digital","Comprova envio, destinatário e situação."],
+      ["Certidão de juntada","Registra a anexação do comprovante."]
+    ]
+  },
+  email:{
+    tab:"E-mail",
+    titulo:"Correio eletrônico institucional",
+    desc:"Via subsidiária para comunicações institucionais, urgentes ou quando o Malote/PJe não for adequado.",
+    passos:[
+      ["1. Validar destinatário","Usar endereço institucional, preferencialmente de unidade/órgão, evitando e-mails pessoais."],
+      ["2. Preparar anexos","Encaminhar documentos em PDF, com identificação do processo e da finalidade."],
+      ["3. Enviar com assunto padrão","Indicar processo, tipo de comunicação e urgência, se houver."],
+      ["4. Solicitar confirmação","Pedir ciência/recebimento quando necessário."],
+      ["5. Certificar","Registrar envio, data, hora, destinatário e eventual resposta."]
+    ],
+    docs:[
+      ["Modelo de e-mail","Texto-padrão para encaminhamento institucional."],
+      ["Certidão de envio","Registra destinatário, data e anexos."],
+      ["Certidão de resposta","Registra confirmação recebida."]
+    ]
+  },
+  ar:{
+    tab:"AR",
+    titulo:"Carta com Aviso de Recebimento",
+    desc:"Fluxo para intimação pessoal ou comunicação física, especialmente quando a parte não possui advogado constituído ou quando a ordem exigir AR.",
+    passos:[
+      ["1. Confirmar endereço","Conferir endereço nos autos e eventual atualização cadastral."],
+      ["2. Preparar carta","Gerar documento com teor da intimação/comunicação e prazo, se houver."],
+      ["3. Expedir AR","Registrar data de postagem e código de rastreamento."],
+      ["4. Acompanhar retorno","Controlar AR positivo, negativo, mudança de endereço ou ausência."],
+      ["5. Juntar/certificar","Digitalizar o AR e certificar o resultado nos autos."]
+    ],
+    docs:[
+      ["Carta de intimação","Documento enviado ao destinatário."],
+      ["AR positivo/negativo","Comprovante físico de entrega ou tentativa."],
+      ["Certidão de juntada de AR","Registra a juntada e o resultado."]
+    ]
+  }
+};
+function operacionalPainel(active="ordem"){
+  const data=OPERACIONAL[active]||OPERACIONAL.ordem;
   return `<div class="card operacional-card">
-    <div class="card-h">${IC.compass}<h2>Operacional</h2><span class="sub">fluxos, especificações e modelos de cumprimento</span></div>
+    <div class="card-h">${IC.compass}<h2>Painel operacional</h2><span class="sub">fluxos, especificações e modelos de cumprimento</span></div>
     <div class="card-b">
-      <div class="banner gold">${IC.info}<div>Base interna para orientar cada caso: carta de ordem/precatória, PJe, malote, e-mail e AR. Os modelos anexados ao projeto podem ser associados aos registros como referência operacional.</div></div>
-      <div class="op-tabs">
-        <button class="op-tab on">Carta de Ordem</button><button class="op-tab">PJe</button><button class="op-tab">Malote</button><button class="op-tab">E-mail</button><button class="op-tab">AR</button>
+      <div class="banner gold">${IC.info}<div><b>${data.titulo}.</b> ${data.desc}</div></div>
+      <div class="op-tabs" id="opTabs">
+        ${Object.entries(OPERACIONAL).map(([k,v])=>`<button class="op-tab ${k===active?"on":""}" onclick="App.showOperacionalTab('${k}')">${v.tab}</button>`).join("")}
       </div>
-      <div class="op-flow">
-        <div class="op-step"><b>1. Expedir</b>Carta/ofício assinado com diligência, destinatário e forma de resposta.</div>
-        <div class="op-step"><b>2. Encaminhar</b>Selecionar via: PJe, Malote Digital, e-mail ou autoridade.</div>
-        <div class="op-step"><b>3. Comprovar</b>Registrar protocolo, recibo de malote, envio por e-mail ou AR.</div>
-        <div class="op-step"><b>4. Acompanhar</b>Aguardar recebimento, aviso de recebimento ou decisão no incidente.</div>
-        <div class="op-step"><b>5. Juntar</b>Registrar aviso juntado, certidão e retorno recebido.</div>
-      </div>
-      <div class="op-docs">
-        <div class="op-doc"><b>Certidão de expedição</b>“Expedida Carta de Ordem/Precatória, conforme comprovante anexo.”</div>
-        <div class="op-doc"><b>Ofício de comunicação</b>Encaminha decisão/despacho e documentos anexos ao destinatário.</div>
-        <div class="op-doc"><b>Recibo de Malote Digital</b>Contém código de rastreabilidade, destinatário e situação de leitura.</div>
-        <div class="op-doc"><b>Certidão de juntada de AR</b>Digitalização e juntada do AR positivo conforme documento anexo.</div>
+      <div id="opPane">${operacionalConteudo(active)}</div>
+    </div>
+  </div>`;
+}
+function operacionalConteudo(active){
+  const data=OPERACIONAL[active]||OPERACIONAL.ordem;
+  return `<div>
+    <div class="op-flow">
+      ${data.passos.map(p=>`<div class="op-step"><b>${p[0]}</b>${p[1]}</div>`).join("")}
+    </div>
+    <div class="op-docs">
+      ${data.docs.map(d=>`<div class="op-doc"><b>${d[0]}</b>${d[1]}</div>`).join("")}
+    </div>
+  </div>`;
+}
+function showOperacionalTab(active){
+  const pane=el("opPane");
+  const tabs=el("opTabs");
+  if(!pane||!tabs)return;
+  pane.innerHTML=operacionalConteudo(active);
+  tabs.querySelectorAll(".op-tab").forEach(btn=>btn.classList.remove("on"));
+  const keys=Object.keys(OPERACIONAL);
+  const idx=keys.indexOf(active);
+  if(idx>=0 && tabs.children[idx])tabs.children[idx].classList.add("on");
+}
+function exportacoesPainel(){
+  return `<div class="card" style="margin-top:18px">
+    <div class="card-h">${IC.download}<h2>Exportações</h2><span class="sub">saída de dados e relatórios locais</span></div>
+    <div class="card-b">
+      <div class="banner info">${IC.info}<div>Use as exportações para auditoria, migração de navegador, conferência de acervo e documentação dos fluxos de cumprimento.</div></div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap">
+        <button class="btn" onclick="App.exportCSV()">${IC.download}Exportar CSV do acervo</button>
+        <button class="btn" onclick="App.relatorioVencidas()">${IC.file}Relatório de vencidas</button>
+        <button class="btn" onclick="App.baixarBackupStorage()">${IC.download}Backup JSON completo</button>
+        <button class="btn" onclick="App.importarBackupStorage()">${IC.upload}Importar backup</button>
       </div>
     </div>
   </div>`;
 }
+
 function armazenamentoPainel(){
   let sizes={};STATE_KEYS.forEach(k=>{try{sizes[k]=(localStorage.getItem(k)||"").length}catch(e){sizes[k]=0}});
   return `<div class="card" style="margin-top:18px">
@@ -1065,7 +1197,9 @@ function renderPainel(){
     <div class="card" style="margin-top:18px">
       <div class="card-h">${IC.phone}<h2>Comunicações urgentes</h2><span class="sub">confirmação telefônica / telegrama</span></div>
       <div class="card-b">${comunicacoesUrgentes()}</div>
-    </div>`;
+    </div>
+    ${armazenamentoPainel()}
+    ${exportacoesPainel()}`;
 }
 
 function showReguaTab(tab){
@@ -2368,6 +2502,44 @@ function dPar(runs,p){p=p||{};let pp="";
   if(p.bdr)pp+=`<w:pBdr><w:bottom w:val="single" w:sz="12" w:space="6" w:color="6B1F2A"/></w:pBdr>`;
   return `<w:p><w:pPr>${pp}</w:pPr>${Array.isArray(runs)?runs.join(""):runs}</w:p>`;
 }
+function padronizaQualDoc(qualAtual){
+  const q=(qualAtual??"").toString().trim().toLowerCase();
+  if(["decurso","permanencia","permanência","reiteracao","reiteração"].includes(q))return"certidoes";
+  if(["certidao","certidão","certidoes","certidões"].includes(q))return"certidoes";
+  if(["comunicacao","comunicação","comunicacoes","comunicações"].includes(q))return"comunicacoes";
+  if(["relatorio","relatório","relatorios","relatórios"].includes(q))return"relatorios";
+  if(["outro","outros"].includes(q))return"outros";
+  return"outros";
+}
+function montarObjectPathDocx(carta_id,qual,nome_arquivo_docx){
+  const cId=(carta_id??"").toString().trim();
+  const q=padronizaQualDoc(qual);
+  const raw=(nome_arquivo_docx??"documento.docx").toString().trim()||"documento.docx";
+  const n=raw.toLowerCase().endsWith(".docx")?raw:`${raw}.docx`;
+  return`docx/${cId}/${q}/${n}`;
+}
+async function uploadAnexoDocx(carta_id,qualAtual,blob,nome_arquivo_docx){
+  const supa=window.deprecataSupabase || supabase;
+  if(!supa)throw new Error("Supabase client não inicializado. Configure deprecata:supabase:url e deprecata:supabase:anon no localStorage.");
+  const bucket="deprecata-anexos";
+  const qual=padronizaQualDoc(qualAtual);
+  const object_path=montarObjectPathDocx(carta_id,qual,nome_arquivo_docx);
+  const fileLike=blob instanceof File ? blob : new File([blob],nome_arquivo_docx,{type:"application/vnd.openxmlformats-officedocument.wordprocessingml.document"});
+  const {error:storageError}=await supa.storage.from(bucket).upload(object_path,fileLike,{upsert:true,contentType:fileLike.type});
+  if(storageError)throw storageError;
+  const payload={
+    carta_id,
+    qual,
+    object_path,
+    tipo_arquivo:"docx",
+    size_bytes:Number(fileLike.size??0),
+    nome_arquivo:nome_arquivo_docx,
+    criado_em:new Date().toISOString()
+  };
+  const {error:insertError}=await supa.from("carta_anexos").insert(payload);
+  if(insertError)throw insertError;
+  return{object_path,qual,nome_arquivo:nome_arquivo_docx,size_bytes:payload.size_bytes};
+}
 function baixarDocx(nomeArquivo,bodyXml){
   const enc=new TextEncoder();
   const ct=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>`;
@@ -2382,6 +2554,7 @@ function baixarDocx(nomeArquivo,bodyXml){
   const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=nomeArquivo;
   document.body.appendChild(a);a.click();
   setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},1500);
+  return blob;
 }
 function gerarCertidao(id,qual){
   const c=cartas.find(x=>x.id===id);
@@ -2409,8 +2582,15 @@ function gerarCertidao(id,qual){
     dPar([dRun("Servidor(a) responsável — DKMS / TRgMS",{sz:22,color:"444444"})],{jc:"center",after:0})
   ].join("");
   const ref2=(c.numeroCarta||c.processo||"carta").replace(/[^\w.-]+/g,"-");
-  baixarDocx(`Certidao_${qual}_${ref2}.docx`,body);
-  toast("Certidão .docx baixada — já formatada.","ok");
+  const qualNome=(qual||"certidao").toString().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^\w.-]+/g,"-").toLowerCase();
+  const nome_arquivo_docx=`Certidao_${qualNome}_${ref2}.docx`;
+  const blob=baixarDocx(nome_arquivo_docx,body);
+  uploadAnexoDocx(id,qual,blob,nome_arquivo_docx)
+    .then(()=>toast("DOCX baixado e anexado no Supabase ✅","ok"))
+    .catch(e=>{
+      console.error(e);
+      toast("Certidão .docx baixada. Supabase não anexou/registrou; veja console ou configure as chaves.","err");
+    });
 }
 
 function relatorioVencidas(){
@@ -2540,7 +2720,7 @@ window.App={
   go,openForm,closeModal,salvar,excluir,
   gerarPeca,relatorioVencidas,exportCSV,carregarExemplos,limparTudo,limparFiltros,
   setModo,onPrazoCalc,onNatureza,toggleObstField,toggleComField,checkSugestaoTipo,
-  fromKpi,avancarDiverso,showReguaTab,
+  fromKpi,avancarDiverso,showReguaTab,showOperacionalTab,
   abrirComunicacoes,recarregaComunic,copiarCobranca,abrirEmailCobranca,registrarCobranca,gerarCertidao,setCobrancaIntervalo,
   openProtocolo,registrarProtocolo,desfazerProtocolo,atualizarEstagiosEncaminhamento,
   intimPick,intimGirar,intimDuvToggle,addDuvida,toggleDuvida,delDuvida,
